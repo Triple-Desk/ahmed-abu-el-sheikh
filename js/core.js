@@ -147,15 +147,24 @@ function monthName(ym) { var p = String(ym).split('-'); return MONTHS_AR[+p[1] -
 /* ======================= server ======================= */
 /* The connection comes from the owner's private link: #d=<deployment id>&k=<key> — remembered on this device. */
 var CFG_KEY = 'abusheikh_cfg';
+/** d/k from a private link, a pasted link, or just its "#d=…&k=…" part — null when it isn't one. */
+function linkCfg(s) {
+  s = String(s || '');
+  var d = s.match(/(?:^|[#&?])d=([A-Za-z0-9_-]{20,})(?=&|$)/), k = s.match(/(?:^|[#&?])k=([A-Za-z0-9]{20,})(?=&|$)/);
+  return d && k ? { d: d[1], k: k[1] } : null;
+}
+function saveCfg(c) { try { localStorage.setItem(CFG_KEY, JSON.stringify(c)); return true; } catch (e) { return false; } }
 var CFG = (function () {
-  var h = {}, saved = {};
-  String(location.hash || '').replace(/^#/, '').split('&').forEach(function (kv) { var p = kv.split('='); if (p[0]) h[p[0]] = decodeURIComponent(p[1] || ''); });
-  try { saved = JSON.parse(localStorage.getItem(CFG_KEY) || '{}') || {}; } catch (e) { saved = {}; }
-  var c = { d: h.d || saved.d || '', k: h.k || saved.k || '' };
-  if (!/^[A-Za-z0-9_-]{20,}$/.test(c.d) || !/^[A-Za-z0-9]{20,}$/.test(c.k)) return null;
-  try { localStorage.setItem(CFG_KEY, JSON.stringify(c)); } catch (e) {}
-  return c;
+  var c = linkCfg(String(location.hash || '').trim()), saved = null;
+  if (!c) { try { saved = JSON.parse(localStorage.getItem(CFG_KEY) || 'null'); } catch (e) { saved = null; } c = saved && linkCfg('d=' + saved.d + '&k=' + saved.k); }
+  if (c) saveCfg(c);
+  return c || null;
 })();
+/* The private link pasted into a tab that is already open only changes the "#…" part — open it. */
+window.addEventListener('hashchange', function () {
+  var c = linkCfg(location.hash);
+  if (c && (!CFG || c.d !== CFG.d || c.k !== CFG.k)) { saveCfg(c); location.reload(); }
+});
 /** One server call. A failed connection or a garbled reply is retried once with the SAME requestId
     (the server never repeats a write it already did), so a short Google hiccup never shows up as an error. */
 function api(action, payload, requestId) {
@@ -181,7 +190,7 @@ function api(action, payload, requestId) {
       if (res.auth === false) { try { localStorage.removeItem(CFG_KEY); } catch (e) {} }
       if (res.data) S.data = res.data;
       if (res.ok) return res;
-      var e = new Error(res.error || 'حصل خطأ'); e.details = res.details; e.code = res.code; throw e;
+      var e = new Error(res.error || 'حصل خطأ'); e.details = res.details; e.code = res.code; e.auth = res.auth === false; throw e;
     });
 }
 function setBusy(on) { S.busy = on; document.getElementById('busybar').classList.toggle('on', !!on); }

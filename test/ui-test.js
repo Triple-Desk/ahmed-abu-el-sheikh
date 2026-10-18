@@ -265,6 +265,40 @@ const mat = n => D().materials.find(m => m.name === n);
   await step('wrong link shows a clear message', async () => {
     assert(typeof w.api === 'function');
   });
+  await step('copy link: falls back to the old copy when the clipboard API refuses', async () => {
+    nav('settings');
+    w.navigator.clipboard = { writeText: () => Promise.reject(new Error('not focused')) };
+    w.document.execCommand = (c) => c === 'copy';
+    click('[data-act=copyLink]'); await sleep(20);
+    assert($$('.toast').some(t => t.textContent.includes('اتنسخ الرابط')), 'no copied toast');
+  });
+  await step('linkCfg reads a full link, a "#d=&k=" part, and refuses junk', () => {
+    const full = w.linkCfg('https://triple-desk.github.io/ahmed-abu-el-sheikh/#d=AKfycbTESTdeploymentIdXXXXXXXX&k=' + KEY);
+    assert(full && full.k === KEY && full.d === 'AKfycbTESTdeploymentIdXXXXXXXX', JSON.stringify(full));
+    assert(w.linkCfg('#d=AKfycbTESTdeploymentIdXXXXXXXX&k=' + KEY), 'hash part');
+    assert(!w.linkCfg('https://triple-desk.github.io/ahmed-abu-el-sheikh/'), 'bare link');
+    assert(!w.linkCfg('d=short&k=short'), 'short');
+  });
+  await step('a browser without the link shows the paste screen; a pasted link is saved and opened', async () => {
+    const vc2 = new VirtualConsole(); const errs2 = [];
+    vc2.on('jsdomError', e => { if (!/navigation|reload/i.test(e.message)) errs2.push(e.message); });
+    let reloads = 0;
+    const d2 = new JSDOM(html, { url: 'https://triple-desk.github.io/ahmed-abu-el-sheikh/', runScripts: 'dangerously', pretendToBeVisual: true, virtualConsole: vc2,
+      beforeParse(win) { win.scrollTo = () => {}; win.fetch = () => { throw new Error('must not call the server without a link'); }; } });
+    await sleep(30);
+    const w2 = d2.window, d = w2.document;
+    assert(d.querySelector('.linkbox') && d.querySelector('#lk_in'), 'no paste screen');
+    assert(d.querySelector('.lk-help').textContent.includes('الإعدادات'), 'no help text');
+    const ta = d.querySelector('#lk_in'); ta.value = 'كلام غلط'; ta.dispatchEvent(new w2.Event('input', { bubbles: true }));
+    d.querySelector('#lk_go').dispatchEvent(new w2.MouseEvent('click', { bubbles: true }));
+    assert(!d.querySelector('#lk_err').hidden, 'no error for junk');
+    ta.value = 'https://triple-desk.github.io/ahmed-abu-el-sheikh/#d=AKfycbTESTdeploymentIdXXXXXXXX&k=' + KEY;
+    ta.dispatchEvent(new w2.Event('input', { bubbles: true }));
+    const saved = JSON.parse(w2.localStorage.getItem('abusheikh_cfg') || '{}');
+    assert(saved.k === KEY && saved.d === 'AKfycbTESTdeploymentIdXXXXXXXX', 'not saved: ' + JSON.stringify(saved));
+    assert(!errs2.length, errs2.join('\n'));
+    d2.window.close();
+  });
   await step('no script errors', () => { assert(!errors.length, errors.join('\n')); });
   console.log(`\n${pass} passed, ${fail} failed (${fetches} server calls)\n`);
   process.exit(fail ? 1 : 0);

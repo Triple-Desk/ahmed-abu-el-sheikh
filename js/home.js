@@ -111,7 +111,12 @@ AFTER.settings = function () {
 function privateLink() { return location.origin + location.pathname + '#d=' + CFG.d + '&k=' + CFG.k; }
 ACT.copyLink = function () {
   var t = privateLink();
-  (navigator.clipboard ? navigator.clipboard.writeText(t) : Promise.reject()).then(function () { toast('اتنسخ الرابط', 'ok'); }, function () {
+  function oldCopy() {
+    var ta = document.createElement('textarea'); ta.value = t; ta.setAttribute('readonly', ''); ta.style.cssText = 'position:fixed;top:0;left:0;opacity:0';
+    document.body.appendChild(ta); ta.select(); var ok = false; try { ok = document.execCommand('copy'); } catch (e) {} ta.remove();
+    return ok ? Promise.resolve() : Promise.reject();
+  }
+  (navigator.clipboard ? navigator.clipboard.writeText(t) : Promise.reject()).catch(oldCopy).then(function () { toast('اتنسخ الرابط — الصقه في المتصفح التاني أو ابعته لنفسك', 'ok'); }, function () {
     modal({ title: 'الرابط الخاص بيك', body: '<textarea class="inp ltr" rows="4" readonly onclick="this.select()">' + esc(t) + '</textarea>' });
   });
 };
