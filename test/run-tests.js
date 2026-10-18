@@ -39,12 +39,23 @@ t('setup creates database, folders and seed; idempotent', () => {
   assert.ok(/Created database/.test(G.setup()));
   assert.ok(/Already/.test(G.setup()));
   data();
-  assert.strictEqual(D.settings.business_name, 'ورشة أولاد الشيخ');
+  assert.strictEqual(D.settings.business_name, 'ورشة أحمد أبو الشيخ');
   assert.strictEqual(D.settings.phone, '01004649365', 'phone kept as text');
   assert.ok(D.materials.length >= 15);
   near(mat('كونتر أرو 18 مم').avg_cost * AREA, 1560, 'seed sheet price', 1e-2);
   near(mat('خشب موسكي').avg_cost, 0.019);
   assert.deepStrictEqual(JSON.parse(D.settings.categories).slice(0, 3), ['غرف نوم', 'مطابخ', 'ركن']);
+});
+
+t('rename migration: old default names become "أحمد أبو الشيخ"; custom names untouched', () => {
+  const G2 = makeEnv(); G2.setup();
+  const k = G2._props.API_KEY, call = (a, p) => JSON.parse(G2.doPost({ postData: { contents: JSON.stringify({ k, action: a, payload: p, requestId: 'm' + Math.random() }) } }).getContent());
+  G2.APP.MAX_WRITES_PER_MIN = 1e6;
+  call('saveSettings', { business_name: 'ورشة أولاد الشيخ', app_name: 'أولاد الشيخ', invoice_note: 'شكرًا لثقتكم في ورشة أولاد الشيخ', address: 'المطرية' });
+  G2.setup();
+  const st = call('bootstrap').data.settings;
+  assert.strictEqual(st.business_name, 'ورشة أحمد أبو الشيخ'); assert.strictEqual(st.app_name, 'أحمد أبو الشيخ');
+  assert.strictEqual(st.invoice_note, 'شكرًا لثقتكم في ورشة أحمد أبو الشيخ'); assert.strictEqual(st.address, 'المطرية');
 });
 
 console.log('\nMaterials & purchases');

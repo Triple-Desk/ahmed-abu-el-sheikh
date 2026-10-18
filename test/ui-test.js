@@ -19,7 +19,7 @@ vc.on('jsdomError', e => errors.push('jsdomError: ' + (e.stack || e.message)));
 vc.on('error', e => errors.push('console.error: ' + e));
 let fetches = 0, opened = [];
 const dom = new JSDOM(html, {
-  url: 'https://triple-desk.github.io/awlad-el-sheikh/#d=AKfycbTESTdeploymentIdXXXXXXXX&k=' + KEY, runScripts: 'dangerously', pretendToBeVisual: true, virtualConsole: vc,
+  url: 'https://triple-desk.github.io/ahmed-abu-el-sheikh/#d=AKfycbTESTdeploymentIdXXXXXXXX&k=' + KEY, runScripts: 'dangerously', pretendToBeVisual: true, virtualConsole: vc,
   beforeParse(win) {
     win.scrollTo = () => {};
     win.open = (u) => { opened.push(u); return {}; };
@@ -50,7 +50,7 @@ const mat = n => D().materials.find(m => m.name === n);
   await sleep(60);
   await step('boots to the dashboard with the workshop name', () => {
     assert(!$('#splash'), 'splash still visible'); assert(text().includes('مبيعات الشهر'), 'no KPI');
-    assert(doc.title === 'أولاد الشيخ', 'title ' + doc.title);
+    assert(doc.title === 'أحمد أبو الشيخ', 'title ' + doc.title);
   });
   for (const v of ['orders', 'products', 'materials', 'purchases', 'production', 'customers', 'reports', 'suppliers', 'expenses', 'settings', 'more', 'dashboard']) {
     await step('view ' + v, () => { nav(v); assert($('#view').innerHTML.length > 100, 'empty view'); });

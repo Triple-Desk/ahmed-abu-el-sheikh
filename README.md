@@ -1,4 +1,4 @@
-# Awlad El-Sheikh Woodworks — ورشة أولاد الشيخ
+# Ahmed Abu El-Sheikh Woodworks — ورشة أحمد أبو الشيخ
 
 Single-owner business system for a carpentry workshop: materials by type (sheets, solid wood, linear, count, liquid),
 product templates made of pieces with dimensions, custom orders/quotations with accurate wood costing (waste, sheets to buy,

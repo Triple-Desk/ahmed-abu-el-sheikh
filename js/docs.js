@@ -142,9 +142,9 @@ function downloadBlob(blob, name) {
   setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 2000);
 }
 function docName(kind, id) {
-  if (kind === 'receipt') { var x = (S.data.payments || []).find(function (p) { return p.id === id; }); return 'Awlad-El-Sheikh-Receipt-' + (x ? x.receipt_no : ''); }
+  if (kind === 'receipt') { var x = (S.data.payments || []).find(function (p) { return p.id === id; }); return 'Ahmed-Abu-El-Sheikh-Receipt-' + (x ? x.receipt_no : ''); }
   var o = orderById(id) || {};
-  return 'Awlad-El-Sheikh-' + (kind === 'cut' ? 'CutList' : o.status === 'quote' ? 'Quotation' : 'Invoice') + '-' + (o.order_no || '');
+  return 'Ahmed-Abu-El-Sheikh-' + (kind === 'cut' ? 'CutList' : o.status === 'quote' ? 'Quotation' : 'Invoice') + '-' + (o.order_no || '');
 }
 function waText(kind, id, url) {
   var phone = setting('phone', ''), name = bizName();

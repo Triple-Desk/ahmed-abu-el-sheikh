@@ -1,7 +1,7 @@
 /**
- * Awlad El-Sheikh Woodworks (ورشة أولاد الشيخ) — server (Google Apps Script), JSON API only.
+ * Ahmed Abu El-Sheikh Woodworks (ورشة أحمد أبو الشيخ) — server (Google Apps Script), JSON API only.
  * Database: one dedicated Google Sheet created by setup() inside the Drive folder
- * "Awlad El-Sheikh Business System". The app itself is hosted on GitHub Pages.
+ * "Ahmed Abu El-Sheikh Business System". The app itself is hosted on GitHub Pages.
  *
  * Only doGet, doPost, setup and dailyBackup are callable from outside; the API needs the secret key;
  * every other function ends with "_". All input is validated here. Nothing is hard-deleted except the
@@ -9,9 +9,9 @@
  */
 
 var APP = {
-  FOLDER: 'Awlad El-Sheikh Business System',
-  DB_NAME: 'Awlad El-Sheikh Database',
-  FILE_PREFIX: 'Awlad El-Sheikh',
+  FOLDER: 'Ahmed Abu El-Sheikh Business System',
+  DB_NAME: 'Ahmed Abu El-Sheikh Database',
+  FILE_PREFIX: 'Ahmed Abu El-Sheikh',
   TZ: 'Africa/Cairo',
   KEEP_BACKUPS: 30,
   MAX_WRITES_PER_MIN: 90,
@@ -68,7 +68,7 @@ var PAY_METHODS = ['cash', 'vodafone', 'instapay', 'transfer'];
 
 function doGet() {
   return HtmlService.createHtmlOutput('<div dir="rtl" style="font-family:sans-serif;padding:40px;text-align:center;color:#5A3825">' +
-    '<h2>أولاد الشيخ</h2><p>افتح السيستم من الرابط الخاص بيك.</p></div>').setTitle('أولاد الشيخ');
+    '<h2>أحمد أبو الشيخ</h2><p>افتح السيستم من الرابط الخاص بيك.</p></div>').setTitle('أحمد أبو الشيخ');
 }
 
 /** JSON API: POST text/plain body {k, action, payload, requestId}. */
@@ -164,7 +164,7 @@ var WRITE_ACTIONS_ = {
 function setup() {
   var props = PropertiesService.getScriptProperties();
   if (!props.getProperty('API_KEY')) props.setProperty('API_KEY', Utilities.getUuid().replace(/-/g, '') + Utilities.getUuid().replace(/-/g, '').slice(0, 8));
-  console.log('AWLAD_KEY=' + props.getProperty('API_KEY'));
+  console.log('SYSTEM_KEY=' + props.getProperty('API_KEY'));
   var existing = props.getProperty('DB_ID');
   if (existing) {
     try {
@@ -270,6 +270,17 @@ function ensureSheets_(ss) {
 function migrate_() {
   var s = defaultSettings_();
   Object.keys(s).forEach(function (k) { if (!find_('Settings', k)) insert_('Settings', [{ key: k, value: s[k] }]); });
+  // The workshop name changed from "أولاد الشيخ" to "أحمد أبو الشيخ": update names still at their old default
+  var old = { business_name: 'ورشة أولاد الشيخ', business_name_en: 'Awlad El-Sheikh Woodworks', app_name: 'أولاد الشيخ',
+              invoice_note: 'شكرًا لثقتكم في ورشة أولاد الشيخ' };
+  Object.keys(old).forEach(function (k) { var r = find_('Settings', k); if (r && r.value === old[k]) update_('Settings', k, { value: s[k] }); });
+  renameDriveFiles_();
+}
+/** Keeps the Drive folder and database file names equal to APP.FOLDER / APP.DB_NAME. */
+function renameDriveFiles_() {
+  var props = PropertiesService.getScriptProperties();
+  try { var f = DriveApp.getFolderById(props.getProperty('FOLDER_ID')); if (f.getName() !== APP.FOLDER) f.setName(APP.FOLDER); } catch (e) { /* optional */ }
+  try { var d = DriveApp.getFileById(props.getProperty('DB_ID')); if (d.getName() !== APP.DB_NAME) d.setName(APP.DB_NAME); } catch (e) { /* optional */ }
 }
 
 /* =========================== Database layer =========================== */
@@ -502,12 +513,12 @@ function vLines_(arr, where) {
 
 function defaultSettings_() {
   return {
-    business_name: 'ورشة أولاد الشيخ', business_name_en: 'Awlad El-Sheikh Woodworks', app_name: 'أولاد الشيخ',
+    business_name: 'ورشة أحمد أبو الشيخ', business_name_en: 'Ahmed Abu El-Sheikh Woodworks', app_name: 'أحمد أبو الشيخ',
     phone: '01004649365', address: '', target_margin: '30',
     waste_sheet: '10', waste_solid: '20', waste_linear: '5', waste_count: '0', waste_liquid: '5',
     order_prefix: 'AS', next_order_no: '1', next_receipt_no: '1', next_purchase_no: '1', next_batch_no: '1',
     currency: 'ج.م',
-    invoice_note: 'شكرًا لثقتكم في ورشة أولاد الشيخ',
+    invoice_note: 'شكرًا لثقتكم في ورشة أحمد أبو الشيخ',
     quote_note: 'عرض السعر ساري لمدة 7 أيام من تاريخه. المقاسات والخامات حسب المتفق عليه.',
     categories: JSON.stringify(['غرف نوم', 'مطابخ', 'ركن', 'انتريهات', 'أبواب', 'شبابيك', 'مناور', 'حلوق']),
     cost_kinds: JSON.stringify(['مصنعية', 'تنجيد', 'دهان', 'تركيب', 'نقل', 'زجاج ومرايات', 'أخرى']),

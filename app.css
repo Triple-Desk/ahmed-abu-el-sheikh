@@ -281,7 +281,7 @@ table.t th.sortable{cursor:pointer}
 .doc{position:relative;background:#fff;border-radius:18px;box-shadow:var(--shadow);border:1px solid #EFE4D6;padding:26px 26px 22px;overflow:hidden;color:#2E2520}
 .doc .band{position:absolute;top:0;left:0;right:0;height:7px;background:linear-gradient(90deg,#5A3825,#B07A47 40%,#D2A86E 60%,#5A3825)}
 .doc-head{display:flex;align-items:center;gap:14px}
-.doc-logo{width:150px;max-width:34%;height:auto;flex:none;display:block}
+.doc-logo{width:170px;max-width:36%;height:auto;flex:none;display:block}
 .doc-brand{flex:1;min-width:0}
 .doc-brand .title{font-size:22px;font-weight:700;color:var(--primary)}
 .doc-brand .t{font-size:13.5px;color:var(--ink-2);margin-top:4px}

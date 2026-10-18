@@ -71,6 +71,8 @@ function makeEnv() {
 
   function Folder(name) { this.id = 'F' + (++fileSeq); this.name = name; this.children = []; this.files = []; files[this.id] = this; }
   Folder.prototype.getId = function () { return this.id; };
+  Folder.prototype.getName = function () { return this.name; };
+  Folder.prototype.setName = function (n) { this.name = n; return this; };
   Folder.prototype.getFoldersByName = function (n) { const l = this.children.filter(f => f.name === n); let i = 0; return { hasNext: () => i < l.length, next: () => l[i++] }; };
   Folder.prototype.createFolder = function (n) { const f = new Folder(n); this.children.push(f); return f; };
   Folder.prototype.getFiles = function () { const l = this.files; let i = 0; return { hasNext: () => i < l.length, next: () => l[i++] }; };
@@ -79,7 +81,7 @@ function makeEnv() {
 
   function fileObj(id, name) {
     return { id, name, created: new Date(), getId: () => id, getName: () => name, getDateCreated() { return this.created; },
-      moveTo(folder) { folder.files.push(this); }, setTrashed() { this.trashed = true; }, setSharing() { this.shared = true; },
+      moveTo(folder) { folder.files.push(this); }, setName(n) { this.name = n; if (files[id]) files[id].name = n; return this; }, setTrashed() { this.trashed = true; }, setSharing() { this.shared = true; },
       makeCopy(n, folder) { const c = fileObj('COPY' + (++fileSeq), n); folder.files.push(c); return c; } };
   }
 

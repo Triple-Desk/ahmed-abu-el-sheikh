@@ -1,5 +1,5 @@
 /**
- * Awlad El-Sheikh Woodworks — Costing Engine (pure functions, no Google services).
+ * Ahmed Abu El-Sheikh Woodworks — Costing Engine (pure functions, no Google services).
  * The SAME file runs on the server (Apps Script) and in the browser (js/engine.js) so the
  * numbers on screen are always the numbers the server saves.
  *

@@ -1,4 +1,4 @@
-/* Awlad El-Sheikh — core helpers, server calls, modal, navigation. */
+/* Ahmed Abu El-Sheikh — core helpers, server calls, modal, navigation. */
 var S = { data: null, view: 'dashboard', param: null, busy: false, modal: null,
   filters: { prodCat: 'all', prodQ: '', matType: 'all', matQ: '', ordStatus: 'open', ordQ: '', archived: false, custQ: '', supQ: '', storeTab: 'catalog' },
   draft: null, idraft: null, report: null };
@@ -87,8 +87,8 @@ function cats() { return jsonSetting('categories'); }
 function costKinds() { return jsonSetting('cost_kinds'); }
 function expKinds() { return jsonSetting('expense_kinds'); }
 function target() { return n(setting('target_margin', 30)); }
-function appName() { return setting('app_name', 'أولاد الشيخ'); }
-function bizName() { return setting('business_name', 'ورشة أولاد الشيخ'); }
+function appName() { return setting('app_name', 'أحمد أبو الشيخ'); }
+function bizName() { return setting('business_name', 'ورشة أحمد أبو الشيخ'); }
 
 function mats() { return S.data.materials || []; }
 function prods() { return S.data.products || []; }
@@ -146,7 +146,7 @@ function monthName(ym) { var p = String(ym).split('-'); return MONTHS_AR[+p[1] -
 
 /* ======================= server ======================= */
 /* The connection comes from the owner's private link: #d=<deployment id>&k=<key> — remembered on this device. */
-var CFG_KEY = 'awlad_cfg';
+var CFG_KEY = 'abusheikh_cfg';
 var CFG = (function () {
   var h = {}, saved = {};
   String(location.hash || '').replace(/^#/, '').split('&').forEach(function (kv) { var p = kv.split('='); if (p[0]) h[p[0]] = decodeURIComponent(p[1] || ''); });
