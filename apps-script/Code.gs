@@ -272,7 +272,9 @@ function migrate_() {
   var st = sheet_('Settings');
   st.getRange(2, 2, st.getMaxRows() - 1, 1).setNumberFormat('@');
   rows_('Settings').forEach(function (r) {
-    if (typeof r.value === 'number') update_('Settings', r.key, { value: (r.key === 'phone' && String(r.value).length === 10 ? '0' : '') + String(r.value) });
+    var v = String(r.value);
+    if (r.key === 'phone' && /^1\d{9}$/.test(v)) v = '0' + v;          // Egyptian mobile that lost its leading 0
+    if (v !== r.value) update_('Settings', r.key, { value: v });
   });
   var s = defaultSettings_();
   Object.keys(s).forEach(function (k) { if (!find_('Settings', k)) insert_('Settings', [{ key: k, value: s[k] }]); });
