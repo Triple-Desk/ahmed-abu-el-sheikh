@@ -90,12 +90,32 @@ VIEWS.settings = function () {
     '<div class="field"><label>بنود المصنعية والشغل بره</label><textarea class="inp" id="st_ck" rows="5">' + esc(costKinds().join('\n')) + '</textarea></div>' +
     '<div class="field"><label>بنود مصاريف الورشة</label><textarea class="inp" id="st_ek" rows="5">' + esc(expKinds().join('\n')) + '</textarea></div></div>';
   h += '<button class="btn btn-primary btn-block mt" data-lockable data-act="saveSettings">' + ic('save', 'sm') + 'حفظ الإعدادات</button>';
+  h += '<div class="card pad mt"><div class="row mb">' + ic('phone') + '<b>افتح السيستم على الموبايل أو جهاز تاني</b></div>' +
+    '<div class="muted">صوّر الكود ده بكاميرا الموبايل، وبعد ما يفتح اختار "إضافة إلى الشاشة الرئيسية" عشان يبقى أيقونة زي أي تطبيق.</div>' +
+    '<div id="st_qr" style="display:grid;place-items:center;padding:14px;margin-top:12px;background:#fff;border:1px solid var(--line);border-radius:14px;min-height:120px"><span class="faint">جاري تجهيز الكود…</span></div>' +
+    '<div class="grid g2 mt"><button class="btn btn-soft" data-act="copyLink">' + ic('copy', 'sm') + 'نسخ الرابط</button><button class="btn" style="background:#1FA855;color:#fff" data-act="waLink">' + WA_ICON + 'ابعته لنفسك واتساب</button></div>' +
+    '<div class="faint mt">الرابط ده خاص بيك — اللي معاه الرابط يقدر يفتح السيستم.</div></div>';
   h += '<div class="card pad mt"><div class="row mb">' + ic('shield') + '<b>النسخ الاحتياطي والملفات</b></div><div class="muted">السيستم بياخد نسخة احتياطية تلقائي كل يوم ويحتفظ بآخر 30 نسخة في فولدر Backups على جوجل درايف.</div>' +
     '<button class="btn btn-soft btn-block mt" data-lockable data-act="backupNow">' + ic('save', 'sm') + 'خد نسخة احتياطية دلوقتي</button>' +
     (links.folder ? '<div class="row mt wrapr"><a class="btn btn-ghost btn-sm" target="_blank" rel="noopener" href="' + esc(links.folder) + '">فولدر الورشة على درايف</a><a class="btn btn-ghost btn-sm" target="_blank" rel="noopener" href="' + esc(links.db) + '">شيت البيانات</a></div>' : '') + '</div>';
   h += '<div class="faint mt">الإصدار ' + esc(S.data.version) + '</div></div>';
   return h;
 };
+AFTER.settings = function () {
+  var box = document.getElementById('st_qr'); if (!box || !CFG) return;
+  loadOne('https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js').then(function () {
+    box.innerHTML = '';
+    new window.QRCode(box, { text: privateLink(), width: 220, height: 220, colorDark: '#2E2520', colorLight: '#ffffff', correctLevel: window.QRCode.CorrectLevel.M });
+  }).catch(function () { box.innerHTML = '<span class="faint">الكود محتاج نت — استخدم "نسخ الرابط".</span>'; });
+};
+function privateLink() { return location.origin + location.pathname + '#d=' + CFG.d + '&k=' + CFG.k; }
+ACT.copyLink = function () {
+  var t = privateLink();
+  (navigator.clipboard ? navigator.clipboard.writeText(t) : Promise.reject()).then(function () { toast('اتنسخ الرابط', 'ok'); }, function () {
+    modal({ title: 'الرابط الخاص بيك', body: '<textarea class="inp ltr" rows="4" readonly onclick="this.select()">' + esc(t) + '</textarea>' });
+  });
+};
+ACT.waLink = function () { window.open('https://wa.me/?text=' + encodeURIComponent('رابط سيستم ' + appName() + ':\n' + privateLink()), '_blank'); };
 function textLines(id) { return val(id).split('\n').map(function (s) { return s.trim(); }).filter(Boolean); }
 ACT.saveSettings = function () {
   var m = parseIn(val('st_margin')); if (m === '' || isNaN(m) || m < 0 || m >= 95) return toast('الهامش لازم يكون بين 0 و 95', 'err');
