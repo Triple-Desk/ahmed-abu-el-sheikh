@@ -1,0 +1,6 @@
+{
+  "name": "awlad-el-sheikh-tests",
+  "private": true,
+  "scripts": { "test": "node engine-tests.js && node run-tests.js && node ui-test.js" },
+  "dependencies": { "jsdom": "^24.1.3" }
+}
