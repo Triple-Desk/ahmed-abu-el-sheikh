@@ -24,9 +24,10 @@ const dom = new JSDOM(html, {
     win.scrollTo = () => {};
     win.open = (u) => { opened.push(u); return {}; };
     win.fetch = (url, opts) => new Promise(res => setTimeout(() => {
+      if (win.__garble > 0) { win.__garble--; res({ ok: true, status: 200, text: () => Promise.resolve('<!DOCTYPE html><p>Google busy</p>') }); return; }
       fetches++;
       const out = G.doPost({ postData: { contents: opts.body } }).getContent();
-      res({ ok: true, status: 200, json: () => Promise.resolve(JSON.parse(out)) });
+      res({ ok: true, status: 200, json: () => Promise.resolve(JSON.parse(out)), text: () => Promise.resolve(out) });
     }, 1));
     win.addEventListener('error', e => errors.push('window error: ' + e.message));
   }
@@ -248,6 +249,13 @@ const mat = n => D().materials.find(m => m.name === n);
   await step('expenses: add one', async () => {
     nav('expenses'); click('[data-act=newExpense]'); await sleep(5); setv('#ex_amount', '2500'); click('[data-act=saveExpense]'); await sleep(60);
     assert(text().includes('2,500'), 'expense listed');
+  });
+  await step('a garbled Google reply is retried once with the same request (no error, no duplicate)', async () => {
+    const before = D().expenses.length;
+    w.__garble = 1;
+    nav('expenses'); click('[data-act=newExpense]'); await sleep(5); setv('#ex_amount', '75'); click('[data-act=saveExpense]'); await sleep(1700);
+    assert(D().expenses.length === before + 1, 'saved once after retry');
+    assert(!$$('.toast.err').length, 'no error toast');
   });
   await step('settings save keeps phone as text and categories as list', async () => {
     nav('settings'); setv('#st_addr', 'المطرية — القاهرة'); setv('#st_cats', 'غرف نوم\nمطابخ\nمكاتب');

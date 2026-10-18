@@ -156,16 +156,26 @@ var CFG = (function () {
   try { localStorage.setItem(CFG_KEY, JSON.stringify(c)); } catch (e) {}
   return c;
 })();
+/** One server call. A failed connection or a garbled reply is retried once with the SAME requestId
+    (the server never repeats a write it already did), so a short Google hiccup never shows up as an error. */
 function api(action, payload, requestId) {
   if (!CFG) return Promise.reject(new Error('افتح السيستم من الرابط الخاص بيك'));
   var body = JSON.stringify({ k: CFG.k, action: action, payload: payload || {}, requestId: requestId || rid() });
-  return fetch('https://script.google.com/macros/s/' + CFG.d + '/exec', {
-    method: 'POST', body: body, credentials: 'omit', redirect: 'follow', cache: 'no-store',
-    headers: { 'Content-Type': 'text/plain;charset=utf-8' }
-  }).then(function (r) {
-    if (!r.ok) throw new Error('تعذر الاتصال بالسيرفر (' + r.status + ')');
-    return r.json();
-  }, function () { throw new Error('تعذر الاتصال، اتأكد من النت وجرّب تاني'); })
+  function once() {
+    return fetch('https://script.google.com/macros/s/' + CFG.d + '/exec', {
+      method: 'POST', body: body, credentials: 'omit', redirect: 'follow', cache: 'no-store',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' }
+    }).then(function (r) {
+      if (!r.ok) { var e1 = new Error('تعذر الاتصال بالسيرفر (' + r.status + ')'); e1.retry = true; throw e1; }
+      return r.text().then(function (t) {
+        try { return JSON.parse(t); } catch (x) { var e2 = new Error('السيرفر مردّش صح، جرّب تاني بعد ثواني'); e2.retry = true; throw e2; }
+      });
+    }, function () { var e3 = new Error('تعذر الاتصال، اتأكد من النت وجرّب تاني'); e3.retry = true; throw e3; });
+  }
+  return once().catch(function (e) {
+    if (!e.retry) throw e;
+    return new Promise(function (r) { setTimeout(r, 1500); }).then(once);
+  })
     .then(function (res) {
       if (!res) throw new Error('مفيش رد من السيرفر');
       if (res.auth === false) { try { localStorage.removeItem(CFG_KEY); } catch (e) {} }
