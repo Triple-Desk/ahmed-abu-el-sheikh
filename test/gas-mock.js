@@ -8,10 +8,10 @@ function makeEnv() {
   const files = {}; let fileSeq = 0;
   const spreadsheets = {};
 
-  function chain(obj) { ['setFontWeight', 'setBackground', 'setFontColor', 'setNumberFormat'].forEach(k => obj[k] = () => obj); return obj; }
+  function chain(obj) { ['setFontWeight', 'setBackground', 'setFontColor'].forEach(k => obj[k] = () => obj); if (!obj.setNumberFormat) obj.setNumberFormat = () => obj; return obj; }
 
   function Sheet(name) {
-    this.name = name; this.grid = []; this.maxRows = 1000; this.maxCols = 26;
+    this.name = name; this.grid = []; this.maxRows = 1000; this.maxCols = 26; this.textCols = new Set();
   }
   Sheet.prototype.getName = function () { return this.name; };
   Sheet.prototype.getMaxRows = function () { return this.maxRows; };
@@ -48,12 +48,15 @@ function makeEnv() {
             let v = vals[r][c];
             if (typeof v === 'string' && v.startsWith('=')) throw new Error('FORMULA WRITTEN: ' + v);
             if (typeof v === 'string' && v.startsWith("'")) { sh.rawApostrophe = (sh.rawApostrophe || 0) + 1; v = v.slice(1); }
+            // like Google Sheets: numeric-looking text in a column that is not formatted as text becomes a number
+            else if (typeof v === 'string' && !sh.textCols.has(col + c) && /^-?\d+(\.\d+)?$/.test(v.trim())) v = Number(v);
             sh.grid[row - 1 + r][col - 1 + c] = v;
           }
         }
         return this;
       },
-      setValue(v) { return this.setValues([[v]]); }
+      setValue(v) { return this.setValues([[v]]); },
+      setNumberFormat(f) { for (let c = 0; c < nc; c++) { if (f === '@') sh.textCols.add(col + c); else sh.textCols.delete(col + c); } return this; }
     });
   };
 

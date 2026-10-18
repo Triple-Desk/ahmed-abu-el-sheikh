@@ -235,7 +235,7 @@ function folderProp_(key, name) {
   return f;
 }
 
-function isTextCol_(table, c) { return !NUMERIC_COLS[c] && !BOOL_COLS[c]; }
+function isTextCol_(table, c) { return table === 'Settings' || (!NUMERIC_COLS[c] && !BOOL_COLS[c]); }
 
 function ensureSheets_(ss) {
   Object.keys(SCHEMA).forEach(function (name) {
@@ -268,6 +268,12 @@ function ensureSheets_(ss) {
 
 /** One-time data fixes after upgrades (safe to run many times). */
 function migrate_() {
+  // Settings values are text (a phone like 01004649365 must keep its leading zero)
+  var st = sheet_('Settings');
+  st.getRange(2, 2, st.getMaxRows() - 1, 1).setNumberFormat('@');
+  rows_('Settings').forEach(function (r) {
+    if (typeof r.value === 'number') update_('Settings', r.key, { value: (r.key === 'phone' && String(r.value).length === 10 ? '0' : '') + String(r.value) });
+  });
   var s = defaultSettings_();
   Object.keys(s).forEach(function (k) { if (!find_('Settings', k)) insert_('Settings', [{ key: k, value: s[k] }]); });
   // The workshop name changed from "أولاد الشيخ" to "أحمد أبو الشيخ": update names still at their old default

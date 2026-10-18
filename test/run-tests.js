@@ -47,6 +47,16 @@ t('setup creates database, folders and seed; idempotent', () => {
   assert.deepStrictEqual(JSON.parse(D.settings.categories).slice(0, 3), ['غرف نوم', 'مطابخ', 'ركن']);
 });
 
+t('a phone saved before the text-format fix gets its leading zero back', () => {
+  const G3 = makeEnv(); G3.setup();
+  const ss = Object.values(G3._spreadsheets)[0], sh = ss.getSheetByName('Settings');
+  sh.textCols.clear();
+  const row = sh.grid.findIndex(r => r && r[0] === 'phone'); sh.grid[row][1] = 1004649365;
+  G3.setup();
+  const k = G3._props.API_KEY;
+  const st = JSON.parse(G3.doPost({ postData: { contents: JSON.stringify({ k, action: 'bootstrap' }) } }).getContent()).data.settings;
+  assert.strictEqual(st.phone, '01004649365');
+});
 t('rename migration: old default names become "أحمد أبو الشيخ"; custom names untouched', () => {
   const G2 = makeEnv(); G2.setup();
   const k = G2._props.API_KEY, call = (a, p) => JSON.parse(G2.doPost({ postData: { contents: JSON.stringify({ k, action: a, payload: p, requestId: 'm' + Math.random() }) } }).getContent());
