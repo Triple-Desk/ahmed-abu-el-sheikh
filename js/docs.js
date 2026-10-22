@@ -23,23 +23,33 @@ VIEWS.doc = function (id) {
   var c = custOf(o), quote = o.status === 'quote', paidOff = !quote && o.status !== 'cancelled' && n(o.total) > 0 && n(o.remaining) <= 0.009;
   topbar((quote ? 'عرض سعر ' : 'فاتورة ') + o.order_no, { back: 'order', backP: o.id });
   var h = '<div class="doc-wrap">' + docActions('order', o.id, c.phone) + '<div class="doc" id="doc">' + docHead(quote ? 'عرض سعر' : 'فاتورة', '', o.status);
-  h += '<div class="doc-info"><div><small>' + (quote ? 'رقم العرض' : 'رقم الفاتورة') + '</small><b class="num">' + esc(o.order_no) + '</b></div><div><small>التاريخ</small><b>' + fmtDate(o.order_date) + '</b></div>' +
-    '<div><small>موعد التسليم</small><b>' + (o.due_date ? fmtDate(o.due_date) : '—') + '</b></div>' +
-    '<div style="grid-column:1/-1"><small>العميل</small><b>' + esc(c.name || '—') + '</b>' + (c.phone ? ' <span class="num" style="font-size:13px;color:var(--ink-2)">' + esc(c.phone) + '</span>' : '') + (c.address ? '<div style="font-size:13px;color:var(--ink-2)">' + esc(c.address) + '</div>' : '') + '</div></div>';
-  h += '<table class="t doc-table"><thead><tr><th>البند</th><th class="n">الكمية</th><th class="n">السعر</th><th class="n">الإجمالي</th></tr></thead><tbody>' + (o.items || []).map(function (it) {
-    return '<tr><td><b>' + esc(it.name) + '</b>' + (it.spec ? '<div style="font-size:12.5px;color:var(--ink-2)">' + esc(it.spec) + '</div>' : '') + '</td><td class="n num">' + fmt(it.qty, 0) + '</td><td class="n">' + imoney(it.unit_price) + '</td><td class="n">' + imoney(n(it.qty) * n(it.unit_price)) + '</td></tr>';
-  }).join('') + '</tbody></table><div class="doc-sum">' + kv('إجمالي البنود', imoney(o.items_total)) + (n(o.discount) ? kv('خصم', '− ' + imoney(o.discount)) : '') +
-    '<div class="doc-total' + (o.status === 'cancelled' ? ' void' : '') + '"><span>الإجمالي</span><span>' + imoney(o.total) + '</span></div>';
-  if (!quote) h += kv('المدفوع', imoney(o.paid)) + '<div class="doc-due' + (n(o.remaining) <= 0.009 ? ' zero' : '') + '"><span>الباقي</span><span>' + imoney(Math.max(0, o.remaining)) + '</span></div>';
+  h += '<div class="doc-info"><div><small>' + (quote ? 'رقم العرض' : 'رقم الفاتورة') + '</small><b class="num">' + nb(o.order_no) + '</b></div><div><small>التاريخ</small><b>' + docDate(o.order_date) + '</b></div>' +
+    '<div><small>موعد التسليم</small><b>' + (o.due_date ? docDate(o.due_date) : '—') + '</b></div>' +
+    '<div style="grid-column:1/-1"><small>العميل</small><b>' + esc(c.name || '—') + '</b>' + (c.phone ? ' <span class="num" style="font-size:13px;color:var(--ink-2)">' + esc(c.phone) + '</span>' : '') + (c.address ? '<div style="font-size:13px;color:var(--ink-2)">' + esc(c.address) + '</div>' : '') + '</div>' +
+    (o.title ? '<div style="grid-column:1/-1"><small>الطلب</small><b>' + esc(o.title) + '</b></div>' : '') + '</div>';
+  h += itemsTable(o);
+  var agreed = hasAgreed_(o), diff = n(o.items_total) - n(o.total);
+  h += '<div class="doc-sum">' + (!agreed ? kv('إجمالي البنود', imoney(o.items_total)) + (n(o.discount) ? kv('خصم', '− ' + imoney(o.discount)) : '') : (n(o.items_total) > 0 && diff > 0.009 ? kv('إجمالي البنود', imoney(o.items_total)) + kv('خصم', '− ' + imoney(diff)) : '')) +
+    '<div class="doc-total' + (o.status === 'cancelled' ? ' void' : '') + '"><span>' + (agreed ? 'الإجمالي المتفق عليه' : 'الإجمالي') + '</span><span>' + imoney(o.total) + '</span></div>';
+  if (!quote) h += kv('المدفوع', imoney(o.paid)) + '<div class="doc-due' + (n(o.remaining) <= 0.009 ? ' zero' : '') + '"><span>' + (n(o.remaining) < -0.009 ? 'ليه عندنا' : 'الباقي') + '</span><span>' + imoney(Math.abs(n(o.remaining))) + '</span></div>';
   h += '</div>' + (paidOff ? '<div class="paid-mark">PAID</div>' : '');
+  if (o.notes) h += '<div class="doc-note"><b>تفاصيل الاتفاق:</b> ' + esc(o.notes) + '</div>';
   var note = quote ? setting('quote_note', '') : '';
   if (note) h += '<div class="doc-note">' + esc(note) + '</div>';
   h += '<div class="doc-foot">' + esc(setting('invoice_note', 'شكرًا لثقتكم')) + '</div></div></div>';
   return h;
 };
+/** Items on customer documents; the price columns appear only when items have their own prices. */
+function itemsTable(o) {
+  var priced = (o.items || []).some(function (it) { return n(it.unit_price) > 0; });
+  return '<table class="t doc-table"><thead><tr><th>البند</th><th class="n">العدد</th>' + (priced ? '<th class="n">السعر</th><th class="n">الإجمالي</th>' : '') + '</tr></thead><tbody>' + (o.items || []).map(function (it) {
+    return '<tr><td><b>' + esc(it.name) + '</b>' + (it.spec ? '<div style="font-size:12.5px;color:var(--ink-2)">' + esc(it.spec) + '</div>' : '') + '</td><td class="n num">' + fmt(it.qty, 0) + '</td>' +
+      (priced ? '<td class="n">' + (n(it.unit_price) > 0 ? imoney(it.unit_price) : '—') + '</td><td class="n">' + (n(it.unit_price) > 0 ? imoney(n(it.qty) * n(it.unit_price)) : '—') + '</td>' : '') + '</tr>';
+  }).join('') + '</tbody></table>';
+}
 function orderSig(o) {
   var c = custOf(o);
-  return hashStr(JSON.stringify([o.status, o.total, o.paid, o.discount, o.order_date, o.due_date, c.name, c.phone, c.address, (o.items || []).map(function (i) { return [i.name, i.spec, i.qty, i.unit_price]; }),
+  return hashStr(JSON.stringify([o.status, o.total, o.paid, o.discount, o.agreed_total, o.title, o.notes, o.order_date, o.due_date, c.name, c.phone, c.address, (o.items || []).map(function (i) { return [i.name, i.spec, i.qty, i.unit_price]; }),
     bizName(), setting('phone', ''), setting('address', ''), setting('quote_note', ''), setting('invoice_note', '')]));
 }
 function hashStr(s) { var h = 5381; for (var i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0; return 'h' + (h >>> 0).toString(36) + s.length.toString(36); }
@@ -51,7 +61,7 @@ VIEWS.receipt = function (id) {
   var o = orderById(x.order_id) || {}, c = custOf(o), r = receiptNumbers(x, o), refund = n(x.amount) < 0, v = x.status === 'void';
   topbar('إيصال ' + x.receipt_no, { back: 'order', backP: o.id });
   var h = '<div class="doc-wrap">' + docActions('receipt', x.id, c.phone) + '<div class="doc" id="doc">' + docHead(refund ? 'إيصال رد مبلغ' : 'إيصال استلام', '', v ? 'cancelled' : null);
-  h += '<div class="doc-info"><div><small>رقم الإيصال</small><b class="num">' + esc(x.receipt_no) + '</b></div><div><small>التاريخ</small><b>' + fmtDate(x.pay_date) + '</b></div><div><small>رقم الطلب</small><b class="num">' + esc(o.order_no || '') + '</b></div>' +
+  h += '<div class="doc-info"><div><small>رقم الإيصال</small><b class="num">' + esc(x.receipt_no) + '</b></div><div><small>التاريخ</small><b>' + docDate(x.pay_date) + '</b></div><div><small>رقم الطلب</small><b class="num">' + esc(o.order_no || '') + '</b></div>' +
     '<div style="grid-column:1/-1"><small>' + (refund ? 'اترد إلى' : 'استلمنا من') + '</small><b>' + esc(c.name || '—') + '</b>' + (c.phone ? ' <span class="num" style="font-size:13px;color:var(--ink-2)">' + esc(c.phone) + '</span>' : '') + '</div></div>';
   h += '<div class="doc-total' + (v ? ' void' : '') + '" style="font-size:22px;padding:16px 18px"><span>' + (PAYKIND_AR[x.kind] || 'مبلغ') + '</span><span>' + imoney(Math.abs(x.amount)) + '</span></div>';
   h += '<div class="doc-sum mt">' + kv('طريقة الدفع', esc(PAY_AR[x.method] || '')) + kv('إجمالي الطلب', imoney(o.total)) + kv('إجمالي المدفوع لحد الإيصال ده', imoney(r.paid)) +
@@ -68,6 +78,94 @@ function receiptNumbers(x, o) {
   return { paid: paid, remaining: n(o.total) - paid };
 }
 function receiptSig(x) { var o = orderById(x.order_id) || {}; var r = receiptNumbers(x, o), c = custOf(o); return hashStr(JSON.stringify([x.status, x.amount, x.method, x.pay_date, r.paid, o.total, c.name, c.phone, bizName(), setting('phone', '')])); }
+
+/* ---------- account statement (كشف حساب) — one order ("o:<id>") or all of a customer's orders ---------- */
+function stmtInfo(param) {
+  param = String(param || '');
+  if (param.indexOf('o:') === 0) {
+    var o = orderById(param.slice(2));
+    if (!o) return null;
+    return { one: o, c: custOf(o), orders: [o], back: { back: 'order', backP: o.id } };
+  }
+  var c = custById(param);
+  if (!c) return null;
+  return { one: null, c: c, orders: custBalance(c).sale, back: { back: 'customer', backP: c.id } };
+}
+function stmtTotals(info) {
+  var t = { total: 0, paid: 0 };
+  info.orders.forEach(function (o) { if (o.status !== 'cancelled') { t.total += n(o.total); t.paid += n(o.paid); } });
+  t.rem = t.total - t.paid;
+  return t;
+}
+VIEWS.statement = function (param) {
+  var info = stmtInfo(param);
+  if (!info) { topbar('كشف الحساب', { back: 'customers' }); return emptyBox('receipt', 'مش موجود'); }
+  var c = info.c, t = stmtTotals(info), ids = {};
+  info.orders.forEach(function (o) { ids[o.id] = o; });
+  var pays = (S.data.payments || []).filter(function (x) { return ids[x.order_id] && x.status !== 'void'; }).slice().reverse();
+  topbar('كشف حساب ' + (c.name || ''), info.back);
+  var h = '<div class="doc-wrap"><div class="doc-actions"><button class="btn wa" data-act="stmtWa" data-p="' + esc(param) + '">' + WA_ICON + (c.phone ? 'ابعت الصورة على واتساب العميل' : 'ضيف رقم العميل عشان تبعت على واتساب') + '</button>' +
+    (c.phone ? '<a class="btn btn-soft" target="_blank" rel="noopener" href="' + esc(waLink(c.phone, stmtText(info))) + '">' + ic('send', 'sm') + 'ابعت الحساب كرسالة</a>' : '<span></span>') +
+    '<button class="btn btn-soft" data-act="stmtImg" data-p="' + esc(param) + '">' + ic('image', 'sm') + 'حفظ الصورة</button>' +
+    '<button class="btn btn-ghost" data-act="docPrint">' + ic('receipt', 'sm') + 'طباعة</button></div>';
+  h += '<div class="doc stmt" id="doc">' + docHead('كشف حساب', '', null);
+  h += '<div class="doc-info"><div style="grid-column:span 2"><small>العميل</small><b>' + esc(c.name || '—') + '</b>' + (c.phone ? ' <span class="num" style="font-size:13px;color:var(--ink-2)">' + esc(c.phone) + '</span>' : '') + '</div>' +
+    '<div><small>التاريخ</small><b>' + docDate(today()) + '</b></div></div>';
+  if (!info.orders.length) h += '<div class="empty">مفيش طلبات مؤكدة لسه.</div>';
+  info.orders.forEach(function (o) {
+    h += '<div class="st-order"><div class="st-head"><b>' + esc(o.title || 'طلب') + '</b><span class="faint">رقم <span class="num">' + nb(o.order_no) + '</span> · ' + docDate(o.order_date) + '</span></div>' +
+      '<div class="st-items">' + (o.items || []).map(function (it) { return '<div><span>' + esc(it.name) + (n(it.qty) > 1 ? ' <span class="num">× ' + fmt(it.qty, 0) + '</span>' : '') + '</span>' + (it.spec ? '<span class="faint">' + esc(it.spec) + '</span>' : '') + '</div>'; }).join('') + '</div>' +
+      '<div class="st-amt"><span>' + (hasAgreed_(o) ? 'المبلغ المتفق عليه' : 'الإجمالي') + '</span><b>' + imoney(o.total) + '</b></div></div>';
+  });
+  if (pays.length) h += '<table class="t doc-table mt"><thead><tr><th>التاريخ</th><th>المدفوع</th><th class="n">المبلغ</th></tr></thead><tbody>' + pays.map(function (x) {
+    var o = ids[x.order_id];
+    return '<tr><td>' + docDate(x.pay_date) + '</td><td>' + (PAYKIND_AR[x.kind] || '') + ' · ' + esc(PAY_AR[x.method] || '') + (info.orders.length > 1 ? ' <span class="faint">(' + esc(o.order_no) + ')</span>' : '') + '</td><td class="n">' + (n(x.amount) < 0 ? '− ' : '') + imoney(Math.abs(x.amount)) + '</td></tr>';
+  }).join('') + '</tbody></table>';
+  h += '<div class="doc-sum">' + kv('إجمالي الحساب', imoney(t.total)) + kv('إجمالي المدفوع', imoney(t.paid)) +
+    '<div class="doc-due' + (t.rem <= 0.009 ? ' zero' : '') + '" style="font-size:20px;padding:14px 16px"><span>' + (t.rem < -0.009 ? 'ليك عندنا' : 'الباقي') + '</span><span>' + imoney(Math.abs(t.rem)) + '</span></div></div>' +
+    (t.total > 0 && t.rem <= 0.009 ? '<div class="paid-mark">PAID</div>' : '');
+  h += '<div class="doc-foot">' + esc(setting('invoice_note', 'شكرًا لثقتكم')) + '</div></div></div>';
+  return h;
+};
+function stmtText(info) {
+  var c = info.c, t = stmtTotals(info), phone = setting('phone', '');
+  return 'أهلاً ' + (c.name || '') + '\nده ملخص حسابك في ' + bizName() + ':\n' +
+    info.orders.map(function (o) { return 'طلب ' + o.order_no + (o.title ? ' — ' + o.title : '') + ': ' + fmt(o.total, 2) + ' ج.م'; }).join('\n') +
+    '\nالإجمالي: ' + fmt(t.total, 2) + ' ج.م\nالمدفوع: ' + fmt(t.paid, 2) + ' ج.م\n' + (t.rem < -0.009 ? 'ليك عندنا: ' + fmt(-t.rem, 2) : 'الباقي: ' + fmt(Math.max(0, t.rem), 2)) + ' ج.م\nشكرًا لثقتك' + (phone ? '\n' + phone : '');
+}
+function stmtName(info) { return 'Ahmed-Abu-El-Sheikh-Account-' + (info.one ? info.one.order_no : String(info.c.name || '').replace(/\s+/g, '-')) + '-' + today(); }
+function docPng() {
+  setBusy(true);
+  return docCanvas().then(function (c) { return new Promise(function (r) { c.toBlob(r, 'image/png'); }); })
+    .then(function (b) { setBusy(false); if (!b) throw new Error('تعذر تجهيز الصورة'); return b; }, function (e) { setBusy(false); throw e; });
+}
+ACT.stmtImg = function (el) {
+  var info = stmtInfo(el.getAttribute('data-p')); if (!info) return;
+  docPng().then(function (b) { downloadBlob(b, stmtName(info) + '.png'); toast('اتحفظت الصورة', 'ok'); }).catch(function (e) { toast(e.message, 'err'); });
+};
+/** The statement as a picture on WhatsApp: phone → share sheet (choose WhatsApp, then the customer);
+    computer → the picture is copied, the customer's chat opens, paste it there. */
+ACT.stmtWa = function (el) {
+  var info = stmtInfo(el.getAttribute('data-p')); if (!info) return;
+  var c = info.c;
+  if (!c.phone || waNumber_(c.phone).length < 8) { toast('ضيف رقم تليفون العميل الأول', 'err'); go('customer', c.id); return; }
+  docPng().then(function (blob) {
+    var name = stmtName(info) + '.png', file = null;
+    try { file = new File([blob], name, { type: 'image/png' }); } catch (e) { file = null; }
+    var touch = !!(window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
+    if (touch && file && navigator.canShare && navigator.canShare({ files: [file] })) {
+      return navigator.share({ files: [file], text: 'كشف حساب ' + (c.name || '') + ' — ' + bizName() }).catch(function () {});
+    }
+    var copied = navigator.clipboard && navigator.clipboard.write && window.ClipboardItem ?
+      navigator.clipboard.write([new window.ClipboardItem({ 'image/png': blob })]).then(function () { return true; }, function () { return false; }) : Promise.resolve(false);
+    return copied.then(function (ok) {
+      if (!ok) downloadBlob(blob, name);
+      var link = waLink(c.phone, 'أهلاً ' + (c.name || '') + '\nده كشف حسابك من ' + bizName());
+      modal({ title: 'صورة الحساب جاهزة', body: '<div class="callout ok">' + ic('check', 'sm') + '<div>' + (ok ? 'الصورة اتنسخت. افتح محادثة العميل، واعمل لصق (Ctrl + V) وبعدين إرسال.' : 'الصورة اتحفظت في التنزيلات. افتح محادثة العميل وابعتها من زرار المرفقات.') + '</div></div>',
+        footer: '<a class="btn" style="flex:1;background:#1FA855;color:#fff" target="_blank" rel="noopener" href="' + esc(link) + '" onclick="setTimeout(closeModal,300)">' + WA_ICON + 'افتح محادثة العميل</a>' });
+    });
+  }).catch(function (e) { toast(e.message, 'err'); });
+};
 
 /* ---------- cut list (internal) ---------- */
 VIEWS.cutlist = function (id) {
@@ -90,8 +188,8 @@ VIEWS.cutlist = function (id) {
   var byMat = {}; mats.forEach(function (x) { byMat[x.material_id] = x; });
   topbar('كشف تقطيع ' + o.order_no, { back: 'order', backP: o.id });
   var h = '<div class="doc-wrap"><div class="doc-actions"><button class="btn btn-primary" data-act="docPrint">' + ic('receipt', 'sm') + 'طباعة</button><button class="btn btn-soft" data-act="docPdf" data-k="cut" data-p="' + esc(o.id) + '">' + ic('save', 'sm') + 'حفظ PDF</button></div>' +
-    '<div class="doc" id="doc">' + docHead('كشف تقطيع — للورشة', '<span class="num">' + esc(o.order_no) + '</span> · ' + esc(c.name || '') + (o.due_date ? ' · التسليم ' + plainDate(o.due_date) : ''), null);
-  h += '<div class="doc-info"><div><small>البنود</small><b>' + (o.items || []).map(function (it) { return esc(it.name) + ' × ' + fmt(it.qty, 0); }).join('، ') + '</b></div><div><small>التاريخ</small><b>' + fmtDate(today()) + '</b></div><div><small>ملاحظات</small><b>' + esc(o.notes || '—') + '</b></div></div>';
+    '<div class="doc" id="doc">' + docHead('كشف تقطيع — للورشة', '<span class="num">' + nb(o.order_no) + '</span> · ' + esc(c.name || '') + (o.due_date ? ' · التسليم ' + plainDate(o.due_date) : ''), null);
+  h += '<div class="doc-info"><div><small>البنود</small><b>' + (o.items || []).map(function (it) { return esc(it.name) + ' × ' + fmt(it.qty, 0); }).join('، ') + '</b></div><div><small>التاريخ</small><b>' + docDate(today()) + '</b></div><div><small>ملاحظات</small><b>' + esc(o.notes || '—') + '</b></div></div>';
   if (!order.length) h += '<div class="empty">مفيش قطع بمقاسات في الطلب ده.</div>';
   order.forEach(function (mid) {
     var g = groups[mid]; g.rows.sort(function (a, b) { return a.ix - b.ix; });

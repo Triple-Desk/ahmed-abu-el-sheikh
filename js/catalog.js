@@ -202,7 +202,8 @@ function startItemEditor(mode, src, idx) {
     S.idraft = { mode: 'order', idx: idx === undefined ? -1 : idx, product_id: src.product_id || '', name: src.name || '', category: src.category || '',
       qty: src.qty || 1, price: src.unit_price === undefined ? '' : src.unit_price, spec: src.spec || '', notes: src.notes || '',
       labor: (src.labor || []).map(function (x) { return { kind: x.kind, amount: x.amount }; }), lines: cloneLines(src.lines),
-      image_id: src.image_id || '', image_url: src.image_url || src.preview || '', image: src.image || null, removeImage: false };
+      image_id: src.image_id || '', image_url: src.image_url || src.preview || '', image: src.image || null, removeImage: false,
+      item_id: src.id || '', made: src.made || 0 };
   }
   if (!S.idraft.lines.length && !src.id && !src.name) S.idraft.lines.push(newPiece());
   go('itemEdit');
@@ -376,6 +377,8 @@ ACT.ieSave = function () {
   var q = parseIn(d.qty); if (!(q >= 1) || Math.floor(q) !== q) return toast('الكمية لازم تكون رقم صحيح (1 أو أكتر)', 'err');
   var item = { product_id: d.product_id, name: d.name, category: d.category, qty: q, unit_price: price === '' ? 0 : price, spec: d.spec, notes: d.notes,
     labor: labor, lines: lp.lines, image_id: d.removeImage ? '' : d.image_id, image: d.image, removeImage: d.removeImage, preview: d.image ? (d.preview || '') : '', image_url: d.removeImage ? '' : d.image_url };
+  if (d.item_id) item.id = d.item_id;
+  item.made = d.made || 0;
   if (d.idx >= 0) S.draft.items[d.idx] = item; else S.draft.items.push(item);
   S.idraft = null;
   go('orderEdit');

@@ -134,7 +134,7 @@ const mat = n => D().materials.find(m => m.name === n);
     setv('#ie_qty', '2'); setv('#ie_spec', '70×50×45 سم');
     click('[data-act=ieSave]'); await sleep(5);
     assert(S_view() === 'orderEdit', 'back to order editor');
-    click('[data-act=odCustomItem]'); await sleep(5);
+    click('[data-act=odPickProduct]'); await sleep(5); click('[data-act=odCustomItem]'); await sleep(5);
     setv('#ie_name', 'تركيب ونقل'); setv('#ie_price', '300');
     click($$('[data-act=ieDelLine]')[0]); await sleep(5);
     click('[data-act=ieSave]'); await sleep(5);
@@ -196,7 +196,8 @@ const mat = n => D().materials.find(m => m.name === n);
   });
   await step('payment → receipt offer → receipt view; invoice shows PAID', async () => {
     click('[data-act=ordPay]'); await sleep(5);
-    assert($('#py_amount').value === '3200', 'default remaining');
+    assert($('#py_amount').placeholder.includes('3,200'), 'remaining as a hint');
+    setv('#py_amount', '3200');
     click('[data-act=savePay]'); await sleep(60);
     click('[data-act=nav][data-v=receipt]'); await sleep(5);
     assert(text('#doc').includes('إيصال استلام') && text('#doc').includes('3,200'), 'receipt ' + text('#doc').slice(0, 200));
@@ -298,6 +299,92 @@ const mat = n => D().materials.find(m => m.name === n);
     assert(saved.k === KEY && saved.d === 'AKfycbTESTdeploymentIdXXXXXXXX', 'not saved: ' + JSON.stringify(saved));
     assert(!errs2.length, errs2.join('\n'));
     d2.window.close();
+  });
+  // ---- the owner's flow: bedroom agreed at 130,000, 90,000 paid, the rest comes later; account picture on WhatsApp
+  let BID, CID;
+  await step('quick order: customer, pieces by name + size, agreed total, paid now → confirmed with 40,000 left', async () => {
+    nav('orders'); click('[data-act=newOrder]'); await sleep(5);
+    assert(text('#topbar').includes('طلب جديد'), 'title');
+    setv('#odc_name', 'محمد السيد'); setv('#odc_phone', '01099887766'); setv('#od_title', 'غرفة نوم');
+    const add = async (name, spec, qty) => {
+      click($$('[data-act=odQuick]').find(b => b.getAttribute('data-v') === name)); await sleep(5);
+      const i = w.eval('S.draft.items.length') - 1;
+      setv(`[data-live=odi][data-i="${i}"][data-f=spec]`, spec);
+      if (qty) setv(`[data-live=odi][data-i="${i}"][data-f=qty]`, String(qty));
+    };
+    await add('دولاب', 'مقاس 270'); await add('كومودينو', 'عرض 50', 2); await add('تسريحة', 'عرض 140'); await add('سرير', '160');
+    setv('#od_agreed', '130000'); setv('#od_paynow', '90000');
+    assert(text('#od_money').includes('40,000'), 'remaining live ' + text('#od_money'));
+    click('[data-act=odConfirm]'); await sleep(80);
+    const o = D().orders[0]; BID = o.id; CID = o.customer_id;
+    assert(o.status === 'confirmed' && o.title === 'غرفة نوم' && o.total === 130000 && o.paid === 90000 && o.remaining === 40000, JSON.stringify([o.status, o.total, o.paid, o.remaining]));
+    assert(o.items.length === 4 && o.items[1].name === 'كومودينو' && o.items[1].qty === 2 && o.items[1].spec === 'عرض 50', 'items');
+    assert(S_view() === 'order' && $('#modalRoot [data-v=statement]'), 'offer to send the account picture');
+  });
+  await step('account picture: items, agreed total, paid, remaining; no costs; WhatsApp text to 2010…', async () => {
+    click('#modalRoot [data-v=statement]'); await sleep(5);
+    const t = text('#doc');
+    assert(t.includes('كشف حساب') && t.includes('غرفة نوم') && t.includes('مقاس 270') && t.includes('130,000') && t.includes('90,000') && t.includes('40,000'), t.slice(0, 300));
+    assert(!/تكلفة|ربح|هامش/.test(t), 'costs leaked');
+    const a = $$('.doc-actions a').find(x => x.href.includes('wa.me'));
+    assert(a && a.href.includes('wa.me/201099887766') && decodeURIComponent(a.href).includes('الباقي: 40,000'), a && a.href);
+  });
+  await step('send the picture: computer → picture copied + open the customer chat', async () => {
+    w.LOADED[w.H2C] = Promise.resolve();
+    w.html2canvas = () => Promise.resolve({ toBlob: cb => cb(new w.Blob(['png'], { type: 'image/png' })) });
+    let wrote = 0; w.ClipboardItem = function (o) { this.o = o; };
+    w.navigator.clipboard = { write: () => { wrote++; return Promise.resolve(); }, writeText: () => Promise.resolve() };
+    w.matchMedia = () => ({ matches: false });
+    click('[data-act=stmtWa]'); await sleep(30);
+    assert(wrote === 1, 'copied');
+    const link = $('#modalRoot a[href*="wa.me"]');
+    assert(text('#modalRoot').includes('اتنسخت') && link && link.href.includes('wa.me/201099887766'), text('#modalRoot'));
+    click('[data-act=closeModal]');
+  });
+  await step('send the picture: phone → share sheet with the image', async () => {
+    let shared = null;
+    w.matchMedia = () => ({ matches: true });
+    w.navigator.canShare = () => true; w.navigator.share = (d) => { shared = d; return Promise.resolve(); };
+    click('[data-act=stmtWa]'); await sleep(30);
+    assert(shared && shared.files && shared.files[0].type === 'image/png' && shared.files[0].name.includes('Account'), 'shared ' + JSON.stringify(shared && shared.files && shared.files[0] && shared.files[0].name));
+  });
+  await step('money that arrives later comes off the balance (customer page)', async () => {
+    nav('orders'); click($$('#view .li').find(x => x.textContent.includes('محمد السيد'))); await sleep(5);
+    click('a.custlink[data-v=customer]'); await sleep(5);
+    assert(S_view() === 'customer' && text().includes('130,000') && text().includes('40,000'), 'summary');
+    click('[data-act=custPay]'); await sleep(5);
+    setv('#cp_amount', '15000'); setv('#cp_method', 'vodafone', 'change');
+    click('[data-act=saveCustPay]'); await sleep(60);
+    assert(D().orders.find(x => x.id === BID).remaining === 25000, 'remaining 25000');
+    assert(text('#modalRoot').includes('25,000') && $('#modalRoot [data-v=statement]'), 'summary + picture offer');
+    click('[data-act=closeModal]');
+    assert(text().includes('25,000'), 'page updated');
+  });
+  await step('a payment can be corrected', async () => {
+    const pay = D().payments.find(x => x.order_id === BID && x.kind === 'payment');
+    click(`[data-act=payEdit][data-p="${pay.id}"]`); await sleep(5);
+    assert($('#pe_amount').value === '15000', 'prefilled');
+    setv('#pe_amount', '20000'); click('[data-act=savePayEdit]'); await sleep(60);
+    assert(D().orders.find(x => x.id === BID).remaining === 20000, 'remaining 20000');
+    click('[data-act=closeModal]');
+  });
+  await step('what was agreed can be changed after confirmation', async () => {
+    nav('orders'); click($$('#view .li').find(x => x.textContent.includes('محمد السيد'))); await sleep(5);
+    click('[data-act=ordEdit]'); await sleep(5);
+    assert(text('#topbar').includes('تعديل الطلب') && $('#od_agreed').value === '130000', 'editor with agreed');
+    assert(!$('#od_paynow'), 'payments are not re-entered when editing');
+    setv('#od_agreed', '135000');
+    setv('[data-live=odi][data-i="0"][data-f=spec]', 'مقاس 280');
+    click('[data-act=odSave]'); await sleep(80);
+    const o = D().orders.find(x => x.id === BID);
+    assert(o.total === 135000 && o.remaining === 25000 && o.items[0].spec === 'مقاس 280' && o.status === 'confirmed', JSON.stringify([o.total, o.remaining, o.status]));
+    assert(S_view() === 'order' && text().includes('135,000'), 'order page');
+  });
+  await step('invoice of an agreed order: no price columns, agreed total, agreement details', async () => {
+    click('[data-act=nav][data-v=doc]'); await sleep(5);
+    const t = text('#doc');
+    assert(t.includes('الإجمالي المتفق عليه') && t.includes('135,000') && t.includes('25,000') && !t.includes('السعر'), t.slice(0, 400));
+    click('[data-act=nav][data-v=order]'); await sleep(5);
   });
   await step('no script errors', () => { assert(!errors.length, errors.join('\n')); });
   console.log(`\n${pass} passed, ${fail} failed (${fetches} server calls)\n`);

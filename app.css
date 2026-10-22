@@ -316,3 +316,40 @@ table.t th.sortable{cursor:pointer}
   .doc{box-shadow:none;border:0;border-radius:0}
   *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
 }
+
+/* order editor: items typed inline, money box */
+.oi-top{display:flex;gap:10px;align-items:flex-end}
+.oi-name{flex:1;min-width:0;font-weight:700}
+.oi-qty{width:86px;flex:none}.oi-qty label,.oi-price label{display:block;font-size:12px;color:var(--ink-3);margin-bottom:2px}
+.oi-qty .inp{text-align:center}
+.oi-bot{display:flex;gap:8px;align-items:flex-end;flex-wrap:nowrap;margin-top:10px}
+.oi-price{width:120px;flex:none}
+.oi-del{flex:none;margin-bottom:6px}
+.oi-bot .iconbtn{margin-bottom:4px}
+.oi-bot .btn{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:0 10px;font-size:13.5px}
+.big-inp{font-size:22px;font-weight:700;height:56px}
+.moneybox{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.moneybox>div{background:var(--oak);border-radius:12px;padding:10px 12px;min-width:0}
+.moneybox>div>span{display:block;font-size:12.5px;color:var(--ink-2);font-weight:600}
+.moneybox b{display:block;font-size:15px;margin-top:2px;white-space:nowrap}
+@media (min-width:480px){.moneybox b{font-size:18px}}
+.moneybox .due{background:var(--bad-bg)}.moneybox .due b{color:var(--bad)}
+.moneybox .ok{background:var(--ok-bg)}.moneybox .ok b{color:var(--ok)}
+.moneybox:has(>div:only-child){grid-template-columns:1fr}
+details.more>summary{cursor:pointer;list-style:none;display:flex;gap:8px;align-items:center}
+details.more>summary::-webkit-details-marker{display:none}
+details.more>summary::before{content:"+";font-weight:700;color:var(--primary);width:18px}
+details.more[open]>summary::before{content:"−"}
+/* account statement */
+.st-order{border:1px solid #EFE4D6;border-radius:12px;padding:12px 14px;margin-top:10px}
+.st-head{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:baseline}
+.st-head b{font-size:16px;color:var(--primary)}
+.st-items{margin-top:8px;display:grid;gap:4px;font-size:14px}
+.st-items div{display:flex;justify-content:space-between;gap:10px;border-bottom:1px dashed #EFE4D6;padding-bottom:4px}
+.st-items div:last-child{border-bottom:0}
+.st-amt{display:flex;justify-content:space-between;margin-top:8px;font-size:15px;color:var(--ink-2)}
+.st-amt b{color:var(--ink)}
+.stmt .paid-mark{bottom:70px}
+.custlink{color:inherit;text-decoration:underline;text-decoration-color:var(--line);text-underline-offset:4px;cursor:pointer}
+.doc-table td.n,.doc-table td:first-child{white-space:nowrap}
+.stmt .doc-table td{vertical-align:middle}

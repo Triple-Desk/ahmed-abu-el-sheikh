@@ -44,7 +44,7 @@ VIEWS.dashboard = function () {
     kpi('علينا للموردين', money(totalOwedToSuppliers(), 0), 'باقي فواتير الشراء', 'truck', false, 'suppliers') +
     kpi('قيمة الخامات في المخزن', money(materialsValue(), 0), 'بمتوسط سعر الشراء', 'box', false, 'materials') +
     kpi('خامات رصيدها قليل', '<span class="num ' + (low.length ? 'neg' : '') + '">' + low.length + '</span>', low.length ? 'محتاجة شراء' : 'كله تمام', 'alert', false, 'materials') + '</div>';
-  h += '<div class="sect"><h2>إجراءات سريعة</h2></div><div class="quick">' + qa('newOrder', 'receipt', 'عرض سعر') + qa('quickPay', 'money', 'تسجيل دفعة') +
+  h += '<div class="sect"><h2>إجراءات سريعة</h2></div><div class="quick">' + qa('newOrder', 'receipt', 'طلب جديد') + qa('quickPay', 'money', 'تسجيل دفعة') +
     qa('nav', 'cart', 'شراء خامات', ' data-v="purchases"') + qa('nav', 'saw', 'تسجيل تصنيع', ' data-v="production"') + '</div>';
   h += '<div class="split mt2"><div>';
   h += '<div class="sect" style="margin-top:0"><h2>متأخرة</h2>' + (late.length ? '<span class="badge b-bad">' + late.length + '</span>' : '') + '</div>' +
@@ -57,7 +57,7 @@ VIEWS.dashboard = function () {
   var noPrice = mats().filter(function (m) { return isActive(m) && !(n(m.avg_cost) > 0); });
   if (noPrice.length) h += '<div class="callout warn mt">' + ic('alert', 'sm') + '<div><b>' + noPrice.length + ' خامة من غير سعر</b> — التكلفة مش هتبقى دقيقة غير لما تسجل أسعارها (من "المشتريات" أو تعديل الخامة).<br><button class="link" data-act="nav" data-v="materials">راجع الخامات</button></div></div>';
   var recent = orders.slice(0, 5);
-  h += '<div class="sect"><h2>آخر الطلبات</h2><span class="grow"></span><button class="link" data-act="nav" data-v="orders">الكل</button></div>' + (recent.length ? '<div class="card list">' + recent.map(orderRow).join('') + '</div>' : emptyBox('receipt', 'لسه مفيش طلبات', 'newOrder', 'أول عرض سعر'));
+  h += '<div class="sect"><h2>آخر الطلبات</h2><span class="grow"></span><button class="link" data-act="nav" data-v="orders">الكل</button></div>' + (recent.length ? '<div class="card list">' + recent.map(orderRow).join('') + '</div>' : emptyBox('receipt', 'لسه مفيش طلبات', 'newOrder', 'أول طلب'));
   h += '</div></div>';
   return h;
 };
@@ -88,7 +88,8 @@ VIEWS.settings = function () {
   h += '<div class="card pad mt"><b style="font-size:17px">القوايم</b><div class="faint mb">كل اختيار في سطر لوحده</div>' +
     '<div class="field"><label>أنواع المنتجات</label><textarea class="inp" id="st_cats" rows="6">' + esc(cats().join('\n')) + '</textarea></div>' +
     '<div class="field"><label>بنود المصنعية والشغل بره</label><textarea class="inp" id="st_ck" rows="5">' + esc(costKinds().join('\n')) + '</textarea></div>' +
-    '<div class="field"><label>بنود مصاريف الورشة</label><textarea class="inp" id="st_ek" rows="5">' + esc(expKinds().join('\n')) + '</textarea></div></div>';
+    '<div class="field"><label>بنود مصاريف الورشة</label><textarea class="inp" id="st_ek" rows="5">' + esc(expKinds().join('\n')) + '</textarea></div>' +
+    '<div class="field"><label>القطع السريعة في الطلب الجديد</label><textarea class="inp" id="st_qi" rows="6">' + esc(quickItems().join('\n')) + '</textarea></div></div>';
   h += '<button class="btn btn-primary btn-block mt" data-lockable data-act="saveSettings">' + ic('save', 'sm') + 'حفظ الإعدادات</button>';
   h += '<div class="card pad mt"><div class="row mb">' + ic('phone') + '<b>افتح السيستم على الموبايل أو جهاز تاني</b></div>' +
     '<div class="muted">صوّر الكود ده بكاميرا الموبايل، وبعد ما يفتح اختار "إضافة إلى الشاشة الرئيسية" عشان يبقى أيقونة زي أي تطبيق.</div>' +
@@ -125,7 +126,7 @@ function textLines(id) { return val(id).split('\n').map(function (s) { return s.
 ACT.saveSettings = function () {
   var m = parseIn(val('st_margin')); if (m === '' || isNaN(m) || m < 0 || m >= 95) return toast('الهامش لازم يكون بين 0 و 95', 'err');
   var pl = { business_name: val('st_name'), business_name_en: val('st_en'), app_name: val('st_app'), phone: val('st_phone'), address: val('st_addr'),
-    quote_note: val('st_qnote'), invoice_note: val('st_inote'), target_margin: m, categories: textLines('st_cats'), cost_kinds: textLines('st_ck'), expense_kinds: textLines('st_ek') };
+    quote_note: val('st_qnote'), invoice_note: val('st_inote'), target_margin: m, categories: textLines('st_cats'), cost_kinds: textLines('st_ck'), expense_kinds: textLines('st_ek'), quick_items: textLines('st_qi') };
   var bad = false;
   ['sheet', 'solid', 'linear', 'count', 'liquid'].forEach(function (t) { var w = parseIn(val('st_w_' + t)); if (w === '' || isNaN(w) || w < 0) bad = true; pl['waste_' + t] = w; });
   if (bad) return toast('اكتب نسب الهالك كأرقام', 'err');

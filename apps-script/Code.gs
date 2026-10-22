@@ -15,7 +15,7 @@ var APP = {
   TZ: 'Africa/Cairo',
   KEEP_BACKUPS: 30,
   MAX_WRITES_PER_MIN: 90,
-  VERSION: '1.0.1'
+  VERSION: '1.1.0'
 };
 
 var SCHEMA = {
@@ -29,7 +29,7 @@ var SCHEMA = {
   Orders:     ['id', 'order_no', 'order_date', 'due_date', 'customer_id', 'status', 'discount', 'extras_json', 'waste_json',
                'full_sheets', 'notes', 'items_total', 'total', 'est_material', 'est_labor', 'est_extra', 'est_cost', 'est_profit',
                'est_margin', 'est_json', 'confirmed_at', 'production_at', 'ready_at', 'delivered_at', 'cancelled_at', 'stock_out',
-               'invoice_file_id', 'invoice_sig', 'created_at', 'updated_at'],
+               'invoice_file_id', 'invoice_sig', 'created_at', 'updated_at', 'title', 'agreed_total'],
   OrderItems: ['id', 'order_id', 'product_id', 'name', 'category', 'spec', 'qty', 'unit_price', 'labor_json', 'notes', 'image_id',
                'est_unit_cost', 'est_unit_material', 'est_unit_labor', 'made_qty', 'out_item', 'out_product', 'sort', 'created_at'],
   OrderLines: ['id', 'order_id', 'item_id', 'ltype', 'name', 'material_id', 'count', 'length', 'width', 'thickness', 'qty', 'unit',
@@ -56,7 +56,7 @@ var NUMERIC_COLS = {
   est_material: 1, est_labor: 1, est_extra: 1, est_cost: 1, est_profit: 1, est_margin: 1, unit_price: 1, est_unit_cost: 1,
   est_unit_material: 1, est_unit_labor: 1, made_qty: 1, out_item: 1, out_product: 1, amount: 1, opening_balance: 1,
   input_qty: 1, qty_base: 1, total_price: 1, unit_cost: 1, avg_before: 1, avg_after: 1, stock_after: 1, material_cost: 1,
-  value: 1
+  value: 1, agreed_total: 1
 };
 var BOOL_COLS = { active: 1, full_sheets: 1, stock_out: 1 };
 
@@ -89,6 +89,7 @@ function apiCall_(req) {
   req = req || {};
   var action = String(req.action || '');
   try {
+    autoUpgrade_();
     if (action === 'bootstrap') return { ok: true, data: bootstrap_() };
     var handler = WRITE_ACTIONS_[action];
     if (!handler) throw new Error('عملية غير معروفة');
@@ -142,6 +143,8 @@ var WRITE_ACTIONS_ = {
   cancelOrder: function (p) { return cancelOrder_(p); },
   addPayment: function (p) { return addPayment_(p); },
   voidPayment: function (p) { return voidPayment_(p); },
+  editPayment: function (p) { return editPayment_(p); },
+  addCustomerPayment: function (p) { return addCustomerPayment_(p); },
   addOrderCost: function (p) { return addOrderCost_(p); },
   voidOrderCost: function (p) { return voidOrderCost_(p); },
   issueMaterials: function (p) { return issueMaterials_(p); },
@@ -160,6 +163,24 @@ var WRITE_ACTIONS_ = {
 
 /* =========================== Setup & backups =========================== */
 
+/**
+ * After new server code is deployed, the first API call adds any new columns/settings (same as running
+ * setup() again) — after taking a backup. Runs once per version.
+ */
+function autoUpgrade_() {
+  var props = PropertiesService.getScriptProperties();
+  if (props.getProperty('SCHEMA_VERSION') === APP.VERSION || !props.getProperty('DB_ID')) return;
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(25000)) return;
+  try {
+    if (props.getProperty('SCHEMA_VERSION') === APP.VERSION) return;
+    try { backupNow_(false); } catch (e) { console.error('backup before upgrade', e); }
+    ensureSheets_(db_()); resetCache_(); migrate_(); flushQueues_(); SpreadsheetApp.flush(); resetCache_();
+    props.setProperty('SCHEMA_VERSION', APP.VERSION);
+    log_('upgrade', 'System', '', 'تحديث السيستم ' + APP.VERSION); flushQueues_();
+  } finally { _Q = {}; lock.releaseLock(); }
+}
+
 /** Run once from the editor. Safe to run again: never overwrites existing data. */
 function setup() {
   var props = PropertiesService.getScriptProperties();
@@ -170,6 +191,7 @@ function setup() {
     try {
       _DB = SpreadsheetApp.openById(existing);
       ensureSheets_(_DB); resetCache_(); migrate_(); flushQueues_(); installTrigger_();
+      props.setProperty('SCHEMA_VERSION', APP.VERSION);
       return 'Already set up: ' + existing;
     } catch (e) { /* the file is gone: fall through and recreate */ }
   }
@@ -195,6 +217,7 @@ function setup() {
   flushQueues_();
   SpreadsheetApp.flush();
   installTrigger_();
+  props.setProperty('SCHEMA_VERSION', APP.VERSION);
   return 'Created database ' + ss.getUrl();
 }
 
@@ -530,7 +553,8 @@ function defaultSettings_() {
     quote_note: 'عرض السعر ساري لمدة 7 أيام من تاريخه. المقاسات والخامات حسب المتفق عليه.',
     categories: JSON.stringify(['غرف نوم', 'مطابخ', 'ركن', 'انتريهات', 'أبواب', 'شبابيك', 'مناور', 'حلوق']),
     cost_kinds: JSON.stringify(['مصنعية', 'تنجيد', 'دهان', 'تركيب', 'نقل', 'زجاج ومرايات', 'أخرى']),
-    expense_kinds: JSON.stringify(['إيجار', 'كهرباء ومياه', 'عدد وأدوات', 'صيانة', 'نقل ومواصلات', 'أجور عمال', 'أخرى'])
+    expense_kinds: JSON.stringify(['إيجار', 'كهرباء ومياه', 'عدد وأدوات', 'صيانة', 'نقل ومواصلات', 'أجور عمال', 'أخرى']),
+    quick_items: JSON.stringify(['دولاب', 'سرير', 'كومودينو', 'تسريحة', 'شوفونيرة', 'مرآة', 'نيش', 'بوفيه', 'سفرة', 'ترابيزة', 'مطبخ', 'باب', 'شباك', 'حلق'])
   };
 }
 
@@ -558,6 +582,7 @@ function saveSettings_(p) {
   if (p.categories !== undefined) setSetting_('categories', JSON.stringify(vList_(p.categories, 'الأنواع', 40, 30)));
   if (p.cost_kinds !== undefined) setSetting_('cost_kinds', JSON.stringify(vList_(p.cost_kinds, 'بنود المصنعية', 30, 30)));
   if (p.expense_kinds !== undefined) setSetting_('expense_kinds', JSON.stringify(vList_(p.expense_kinds, 'بنود المصاريف', 30, 30)));
+  if (p.quick_items !== undefined) setSetting_('quick_items', JSON.stringify(vList_(p.quick_items, 'القطع السريعة', 40, 30)));
   log_('update', 'Settings', '', 'الإعدادات');
   return {};
 }
@@ -865,7 +890,7 @@ function linesByItem_(orderId) {
 function itemsForCost_(orderId) {
   return orderItems_(orderId).map(function (it) { return { id: it.id, name: it.name, qty: it.qty, unit_price: it.unit_price, labor: safeJson_(it.labor_json, []) }; });
 }
-function orderView_(o) { return { discount: o.discount, extras: safeJson_(o.extras_json, []), waste: safeJson_(o.waste_json, {}), full_sheets: isTrue_(o.full_sheets) }; }
+function orderView_(o) { return { discount: o.discount, agreed_total: o.agreed_total, extras: safeJson_(o.extras_json, []), waste: safeJson_(o.waste_json, {}), full_sheets: isTrue_(o.full_sheets) }; }
 function liveEstimate_(o) {
   return orderEstimate_(orderView_(o), itemsForCost_(o.id), linesByItem_(o.id), byId_('Materials'), settingsObj_());
 }
@@ -874,24 +899,33 @@ function markInvoicesStale_(pred) {
 }
 
 /**
- * Create / edit a quotation (عرض سعر). Items are custom: catalog pieces are COPIED into the order and can be
- * edited for this customer without touching the catalog. Only quotes can be edited.
+ * Create / edit an order. Items are custom: catalog pieces are COPIED into the order and can be edited for this
+ * customer without touching the catalog. Item prices are optional when the order has an agreed total
+ * (المبلغ المتفق عليه). A quote is rewritten freely. A confirmed / in-production / ready / delivered order can be
+ * edited too (the owner keeps full control of what was agreed): items keep their ids (production and delivery
+ * records stay linked), produced/delivered pieces can't disappear, and the estimated cost is recomputed with the
+ * prices frozen at confirmation (new materials at today's price).
  */
 function saveOrder_(p) {
   var isNew = !p.id, order = null;
   if (!isNew) {
     order = must_('Orders', p.id, 'الطلب');
-    if (order.status !== 'quote') throw new Error('الطلب المؤكد مبيتعدلش. رجّعه لعرض سعر الأول (لو لسه متصنعش).');
+    if (order.status === 'cancelled') throw new Error('الطلب ملغي — مينفعش يتعدل');
   }
+  var locked = !isNew && order.status !== 'quote', delivered = locked && order.status === 'delivered';
   var items = Array.isArray(p.items) ? p.items : [];
   if (!items.length) throw new Error('ضيف قطعة واحدة على الأقل للطلب');
   if (items.length > 60) throw new Error('عدد البنود في الطلب كبير جدًا');
+  var oldItems = isNew ? [] : orderItems_(order.id), oldById = {};
+  oldItems.forEach(function (it) { oldById[it.id] = it; });
   var parsed = items.map(function (it, i) {
     var lab = 'البند ' + (i + 1);
     var prod = it.product_id ? find_('Products', it.product_id) : null;
     var name = vStr_(it.name, 'اسم ' + lab, 80, true);
+    var keep = locked && it.id && oldById[it.id] ? oldById[it.id] : null;
+    if (locked && it.id && !keep) throw new Error(name + ': البند ده مش تبع الطلب');
     return {
-      product_id: prod ? prod.id : '', name: name, category: vStr_(it.category, 'النوع', 40, false), spec: vStr_(it.spec, 'المواصفات', 200, false),
+      keep: keep, product_id: prod ? prod.id : '', name: name, category: vStr_(it.category, 'النوع', 40, false), spec: vStr_(it.spec, 'المواصفات', 200, false),
       qty: vNum_(it.qty, 'الكمية في ' + lab, { gt: 0, max: 10000, int: true, required: true }),
       unit_price: vNum_(it.unit_price, 'السعر في ' + lab, { min: 0, max: 1e9 }),
       labor: vAmounts_(it.labor, 'المصنعية في ' + lab, 15), notes: vStr_(it.notes, 'ملاحظات ' + lab, 300, false),
@@ -899,53 +933,100 @@ function saveOrder_(p) {
       lines: vLines_(it.lines || [], name)
     };
   });
+  if (locked) {                                    // pieces already made / delivered must stay covered
+    var kept = {};
+    parsed.forEach(function (it) {
+      if (!it.keep) { if (delivered) throw new Error('الطلب اتسلم — مينفعش تزوّد بنود عليه. اعمل طلب جديد للحاجات الزيادة.'); return; }
+      kept[it.keep.id] = true;
+      var made = num_(it.keep.made_qty), out = num_(it.keep.out_item) + num_(it.keep.out_product);
+      if (delivered && it.qty !== num_(it.keep.qty)) throw new Error(it.name + ': الطلب اتسلم — مينفعش تغيّر الكمية');
+      if (it.qty < Math.max(made, out)) throw new Error(it.name + ': اتصنع/اتسلم منه ' + Math.max(made, out) + ' — الكمية مينفعش تقل عن كده');
+    });
+    oldItems.forEach(function (it) {
+      if (kept[it.id]) return;
+      if (delivered) throw new Error('الطلب اتسلم — مينفعش تشيل بنود منه');
+      if (num_(it.made_qty) > 0 || num_(it.out_item) + num_(it.out_product) > 0) throw new Error('"' + it.name + '" اتسجل له تصنيع — مينفعش يتشال من الطلب');
+    });
+  }
   var waste = {};
   if (p.waste && typeof p.waste === 'object') Object.keys(p.waste).forEach(function (k) {
     if (p.waste[k] === '' || p.waste[k] === null || p.waste[k] === undefined) return;
     must_('Materials', k, 'خامة الهالك'); waste[k] = vNum_(p.waste[k], 'نسبة الهالك', { min: 0, max: 200 });
   });
   var extras = vAmounts_(p.extras, 'مصاريف الطلب', 15);
+  var agreed = (p.agreed_total === '' || p.agreed_total === null || p.agreed_total === undefined) ? '' : vNum_(p.agreed_total, 'المبلغ المتفق عليه', { min: 0, max: 1e9 });
+  var dep = !locked && p.confirm ? vDeposit_(p.deposit) : null;   // validate BEFORE writing anything
   var customerId = resolveCustomer_(p.customer);
+  if (locked && !customerId) throw new Error('اختار العميل');
   var rec = {
     order_date: vDate_(p.order_date), due_date: vDate_(p.due_date, true), customer_id: customerId,
-    discount: vNum_(p.discount, 'الخصم', { min: 0, max: 1e9 }), extras_json: JSON.stringify(extras),
+    title: vStr_(p.title, 'وصف الطلب', 60, false), agreed_total: agreed,
+    discount: agreed === '' ? vNum_(p.discount, 'الخصم', { min: 0, max: 1e9 }) : 0, extras_json: JSON.stringify(extras),
     waste_json: JSON.stringify(waste), full_sheets: p.full_sheets === true, notes: vText_(p.notes, 'الملاحظات', 500),
     invoice_sig: '', updated_at: now_()
   };
   var id = isNew ? newId_('ORD') : order.id;
   parsed.forEach(function (it) { if (it.image && it.image.data) it.image_id = saveImage_(it.image, 'ORDER ' + it.name); });
-  if (!isNew) {
-    deleteWhere_('OrderLines', function (l) { return l.order_id === id; });
-    deleteWhere_('OrderItems', function (l) { return l.order_id === id; });
-  }
   var t = now_(), itemRows = [], lineRows = [];
   parsed.forEach(function (it, i) {
-    var iid = newId_('OI');
-    itemRows.push({ id: iid, order_id: id, product_id: it.product_id, name: it.name, category: it.category, spec: it.spec, qty: it.qty,
-      unit_price: it.unit_price, labor_json: JSON.stringify(it.labor), notes: it.notes, image_id: it.image_id, est_unit_cost: '',
-      est_unit_material: '', est_unit_labor: '', made_qty: 0, out_item: 0, out_product: 0, sort: i + 1, created_at: t });
-    it.lines.forEach(function (l) { l.id = newId_('OL'); l.order_id = id; l.item_id = iid; lineRows.push(l); });
+    var row = { id: it.keep ? it.keep.id : newId_('OI'), order_id: id, product_id: it.product_id, name: it.name, category: it.category, spec: it.spec,
+      qty: it.qty, unit_price: it.unit_price, labor_json: JSON.stringify(it.labor), notes: it.notes, image_id: it.image_id, sort: i + 1 };
+    if (!it.keep) { row.est_unit_cost = ''; row.est_unit_material = ''; row.est_unit_labor = ''; row.made_qty = 0; row.out_item = 0; row.out_product = 0; row.created_at = t; }
+    row._keep = !!it.keep;
+    itemRows.push(row);
+    it.lines.forEach(function (l) { l.id = newId_('OL'); l.order_id = id; l.item_id = row.id; lineRows.push(l); });
   });
-  var est = orderEstimate_({ discount: rec.discount, extras: extras, waste: waste, full_sheets: rec.full_sheets },
-    itemRows.map(function (it) { return { id: it.id, qty: it.qty, unit_price: it.unit_price, labor: safeJson_(it.labor_json, []) }; }),
-    (function () { var m = {}; lineRows.forEach(function (l) { (m[l.item_id] = m[l.item_id] || []).push(l); }); return m; })(),
-    byId_('Materials'), settingsObj_());
+  var lbi = {}; lineRows.forEach(function (l) { (lbi[l.item_id] = lbi[l.item_id] || []).push(l); });
+  var snap = locked ? snapshotOf_(order) : null;
+  var est = orderEstimate_({ discount: rec.discount, agreed_total: agreed, extras: extras, waste: waste, full_sheets: rec.full_sheets },
+    itemRows.map(function (it, i) { return { id: it.id, qty: it.qty, unit_price: it.unit_price, labor: parsed[i].labor }; }),
+    lbi, byId_('Materials'), settingsObj_(), snap ? snap.prices || {} : undefined);
   if (est.total < 0) throw new Error('الخصم أكبر من قيمة الطلب');
+  if (dep && dep.amount > est.total + 0.01) throw new Error('المبلغ المدفوع أكبر من إجمالي الطلب');
   rec.items_total = est.items_total; rec.total = est.total;
+  // write
+  if (!isNew) {
+    deleteWhere_('OrderLines', function (l) { return l.order_id === id; });
+    if (locked) {
+      var keepIds = {}; itemRows.forEach(function (r) { if (r._keep) keepIds[r.id] = true; });
+      deleteWhere_('OrderItems', function (l) { return l.order_id === id && !keepIds[l.id]; });
+    } else deleteWhere_('OrderItems', function (l) { return l.order_id === id; });
+  }
+  if (locked) {
+    var snapItems = {}, prices = Object.assign({}, snap.prices || {}), wasteSnap = {};
+    est.materials.forEach(function (m) { prices[m.material_id] = m.unit_cost; wasteSnap[m.material_id] = m.waste_pct; });
+    itemRows.forEach(function (r) {
+      var e = est.items[r.id];
+      r.est_unit_cost = e.unit_cost; r.est_unit_material = e.unit_material; r.est_unit_labor = e.unit_labor;
+      snapItems[r.id] = { material_cost: e.material_cost, labor_cost: e.labor_cost, total_cost: e.total_cost, by_cat: e.by_cat };
+    });
+    rec.est_material = est.material_cost; rec.est_labor = est.labor_cost; rec.est_extra = est.extra_cost; rec.est_cost = est.total_cost;
+    rec.est_profit = est.profit; rec.est_margin = est.margin === null ? '' : est.margin;
+    rec.est_json = JSON.stringify({ materials: est.materials.map(snapMat_), prices: prices, waste: wasteSnap, warnings: est.warnings, items: snapItems, edited_at: now_() });
+  }
   if (isNew) {
     rec.id = id; rec.order_no = nextNo_('next_order_no', getSetting_('order_prefix', 'AS') || 'AS'); rec.status = 'quote';
     rec.stock_out = false; rec.created_at = now_();
     insert_('Orders', [rec]);
   } else update_('Orders', id, rec);
-  insert_('OrderItems', itemRows);
-  insert_('OrderLines', lineRows);
+  var newRows = [];
+  itemRows.forEach(function (r) {
+    var keep = r._keep; delete r._keep;
+    if (keep) update_('OrderItems', r.id, r); else newRows.push(r);
+  });
+  if (newRows.length) insert_('OrderItems', newRows);
+  if (lineRows.length) insert_('OrderLines', lineRows);
   log_(isNew ? 'create' : 'update', 'Order', id, (rec.order_no || order.order_no) + ' ' + est.total);
   var out = { id: id };
-  if (p.confirm) {
-    try { confirmOrder_({ id: id, deposit: p.deposit }); }
+  if (!locked && p.confirm) {
+    try { out.payment_id = confirmOrder_({ id: id, deposit: dep }).payment_id; }
     catch (e) { out.confirmError = e.message; }
   }
   return out;
+}
+function snapMat_(m) {
+  return { material_id: m.material_id, name: m.name, mtype: m.mtype, category: m.category, base_unit: m.base_unit, net: m.net,
+           waste_pct: m.waste_pct, gross: m.gross, unit_cost: m.unit_cost, cost: m.cost, sheets: m.sheets, sheet_area: m.sheet_area };
 }
 
 /** Customer, due date and notes can be corrected at any time (no effect on money or stock). */
@@ -971,16 +1052,14 @@ function confirmOrder_(p) {
   if (!items.length) throw new Error('الطلب فاضي');
   var dep = vDeposit_(p.deposit);                          // validate BEFORE writing anything
   var est = liveEstimate_(o);
+  if (dep && dep.amount > est.total + 0.01) throw new Error('المبلغ المدفوع أكبر من إجمالي الطلب');
   var prices = {}, waste = {};
   est.materials.forEach(function (m) { prices[m.material_id] = m.unit_cost; waste[m.material_id] = m.waste_pct; });
   items.forEach(function (it) {
     var e = est.items[it.id];
     update_('OrderItems', it.id, { est_unit_cost: e.unit_cost, est_unit_material: e.unit_material, est_unit_labor: e.unit_labor });
   });
-  var snap = { materials: est.materials.map(function (m) {
-    return { material_id: m.material_id, name: m.name, mtype: m.mtype, category: m.category, base_unit: m.base_unit, net: m.net,
-             waste_pct: m.waste_pct, gross: m.gross, unit_cost: m.unit_cost, cost: m.cost, sheets: m.sheets, sheet_area: m.sheet_area };
-  }), prices: prices, waste: waste, warnings: est.warnings, items: {} };
+  var snap = { materials: est.materials.map(snapMat_), prices: prices, waste: waste, warnings: est.warnings, items: {} };
   items.forEach(function (it) { var e = est.items[it.id]; snap.items[it.id] = { material_cost: e.material_cost, labor_cost: e.labor_cost, total_cost: e.total_cost, by_cat: e.by_cat }; });
   update_('Orders', o.id, { status: 'confirmed', confirmed_at: now_(), items_total: est.items_total, total: est.total,
     est_material: est.material_cost, est_labor: est.labor_cost, est_extra: est.extra_cost, est_cost: est.total_cost,
@@ -1336,6 +1415,61 @@ function voidPayment_(p) {
   return { id: x.id };
 }
 
+/** Correct a payment (amount, date, method, notes) at any time — the order's remaining follows. */
+function editPayment_(p) {
+  var x = must_('Payments', p.id, 'الدفعة');
+  if (x.status === 'void') throw new Error('الدفعة دي ملغية');
+  var o = must_('Orders', x.order_id, 'الطلب');
+  var amount = vNum_(p.amount, 'المبلغ', { gt: 0, max: 1e9, required: true });
+  var refund = x.kind === 'refund';
+  if (refund) {
+    var paidOthers = r2_(orderPaid_(o.id) - num_(x.amount));
+    if (amount > paidOthers + 1e-6) throw new Error('المبلغ المردود أكبر من المدفوع (' + paidOthers + ')');
+  }
+  var patch = { amount: refund ? -amount : amount, pay_date: vDate_(p.date || x.pay_date),
+                method: vEnum_(p.method || x.method || 'cash', PAY_METHODS, 'طريقة الدفع'),
+                notes: p.notes === undefined ? x.notes : vStr_(p.notes, 'الملاحظات', 200, false), receipt_sig: '' };
+  update_('Payments', x.id, patch);
+  update_('Orders', o.id, { invoice_sig: '', updated_at: now_() });
+  log_('update', 'Payment', x.id, x.receipt_no + ' ' + x.amount + ' → ' + patch.amount);
+  return { id: x.id };
+}
+
+/**
+ * Money received from a customer: goes to a chosen order, or automatically to the oldest balances first.
+ * Anything above everything owed stays on the last order as credit (له عندنا).
+ */
+function addCustomerPayment_(p) {
+  var c = must_('Customers', p.customer_id, 'العميل');
+  var amount = vNum_(p.amount, 'المبلغ', { gt: 0, max: 1e9, required: true });
+  var base = { method: vEnum_(p.method || 'cash', PAY_METHODS, 'طريقة الدفع'), date: vDate_(p.date), notes: vStr_(p.notes, 'الملاحظات', 200, false), kind: 'payment' };
+  if (p.order_id) {
+    var o1 = must_('Orders', p.order_id, 'الطلب');
+    if (o1.customer_id !== c.id) throw new Error('الطلب ده مش للعميل ده');
+    return { ids: [addPayment_(Object.assign({ order_id: o1.id, amount: amount }, base)).id], parts: [{ order_id: o1.id, order_no: o1.order_no, amount: amount }] };
+  }
+  var paid = {};
+  rows_('Payments').forEach(function (x) { if (x.status !== 'void') paid[x.order_id] = (paid[x.order_id] || 0) + num_(x.amount); });
+  var list = rows_('Orders').filter(function (o) { return o.customer_id === c.id && ['confirmed', 'production', 'ready', 'delivered'].indexOf(o.status) >= 0; })
+    .sort(function (a, b) { return String(a.order_date).localeCompare(String(b.order_date)) || String(a.created_at).localeCompare(String(b.created_at)); });
+  if (!list.length) throw new Error('مفيش طلبات مؤكدة للعميل ده — أكّد الطلب الأول');
+  var rest = amount, parts = [];
+  list.forEach(function (o) {
+    var due = r2_(num_(o.total) - (paid[o.id] || 0));
+    if (rest <= 0.001 || due <= 0.009) return;
+    var part = r2_(Math.min(rest, due));
+    parts.push({ order_id: o.id, order_no: o.order_no, amount: part });
+    rest = r2_(rest - part);
+  });
+  if (rest > 0.001) {
+    var last = parts.length ? parts[parts.length - 1] : { order_id: list[list.length - 1].id, order_no: list[list.length - 1].order_no, amount: 0 };
+    if (!parts.length) parts.push(last);
+    last.amount = r2_(last.amount + rest);
+  }
+  var ids = parts.map(function (x) { return addPayment_(Object.assign({ order_id: x.order_id, amount: x.amount }, base)).id; });
+  return { ids: ids, parts: parts };
+}
+
 function addOrderCost_(p) {
   var o = must_('Orders', p.order_id, 'الطلب');
   if (o.status === 'quote') throw new Error('التكاليف الفعلية بتتسجل بعد تأكيد الطلب');
@@ -1593,7 +1727,7 @@ function bootstrap_() {
     o.invoice_url = fileUrl_(r.invoice_file_id);
     if (r.status === 'quote') {     // live estimate with today's prices
       var lbi = {}; o.lines.forEach(function (l) { (lbi[l.item_id] = lbi[l.item_id] || []).push(l); });
-      var e = orderEstimate_({ discount: r.discount, extras: o.extras, waste: o.waste, full_sheets: o.full_sheets },
+      var e = orderEstimate_({ discount: r.discount, agreed_total: r.agreed_total, extras: o.extras, waste: o.waste, full_sheets: o.full_sheets },
         o.items.map(function (it) { return { id: it.id, qty: it.qty, unit_price: it.unit_price, labor: it.labor }; }), lbi, mById, settings);
       o.est_material = e.material_cost; o.est_labor = e.labor_cost; o.est_extra = e.extra_cost; o.est_cost = e.total_cost;
       o.est_profit = e.profit; o.est_margin = e.margin; o.items_total = e.items_total; o.total = e.total; o.remaining = r2_(e.total - o.paid);

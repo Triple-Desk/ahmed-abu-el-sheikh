@@ -3,8 +3,8 @@
 /* ---------- list ---------- */
 function orderRow(o) {
   var c = custOf(o);
-  var items = (o.items || []).map(function (it) { return esc(it.name) + (n(it.qty) > 1 ? ' × ' + fmt(it.qty, 0) : ''); }).join('، ');
-  var rem = countsAsSale(o) && n(o.remaining) > 0.009 ? '<div class="faint neg">باقي ' + money(o.remaining, 0) + '</div>' : (countsAsSale(o) ? '<div class="faint pos">خالص</div>' : '');
+  var items = (o.title ? '<b>' + esc(o.title) + '</b> · ' : '') + (o.items || []).map(function (it) { return esc(it.name) + (n(it.qty) > 1 ? ' × ' + fmt(it.qty, 0) : ''); }).join('، ');
+  var rem = countsAsSale(o) && n(o.remaining) > 0.009 ? '<div class="faint neg">باقي ' + money(o.remaining, 0) + '</div>' : (countsAsSale(o) ? '<div class="faint pos">' + (n(o.remaining) < -0.009 ? 'ليه ' + money(-n(o.remaining), 0) : 'خالص') + '</div>' : '');
   return '<div class="li" data-act="nav" data-v="order" data-p="' + esc(o.id) + '"><div class="avatar no">' + esc(o.order_no) + '</div>' +
     '<div class="grow"><div class="main-t">' + esc(c.name || 'بدون اسم') + ' ' + statusBadge(o) + '</div>' +
     '<div class="faint" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + (o.due_date && isOpen(o) ? 'التسليم ' + fmtDate(o.due_date) + ' · ' : fmtDate(o.order_date) + ' · ') + items + '</div></div>' +
@@ -18,13 +18,13 @@ function ordFilter(o, f) {
   return o.status === f;
 }
 VIEWS.orders = function () {
-  topbar('الطلبات', { right: '<button class="btn btn-primary btn-sm desk-only" data-act="newOrder">' + ic('plus', 'sm') + 'عرض سعر جديد</button>' });
+  topbar('الطلبات', { right: '<button class="btn btn-primary btn-sm desk-only" data-act="newOrder">' + ic('plus', 'sm') + 'طلب جديد</button>' });
   var f = S.filters, all = S.data.orders || [], q = f.ordQ.trim().toLowerCase();
   var list = all.filter(function (o) {
     if (!ordFilter(o, f.ordStatus)) return false;
     if (!q) return true;
     var c = custOf(o);
-    return (o.order_no + ' ' + c.name + ' ' + (c.phone || '') + ' ' + (o.items || []).map(function (i) { return i.name; }).join(' ')).toLowerCase().indexOf(q) >= 0;
+    return (o.order_no + ' ' + c.name + ' ' + (c.phone || '') + ' ' + (o.title || '') + ' ' + (o.items || []).map(function (i) { return i.name; }).join(' ')).toLowerCase().indexOf(q) >= 0;
   });
   if (f.ordStatus === 'open' || f.ordStatus === 'late') list.sort(function (a, b) { return String(a.due_date || '9999').localeCompare(String(b.due_date || '9999')); });
   var h = '<div class="row mb"><div class="search"><input class="inp" id="ordQ" placeholder="ابحث برقم الطلب أو العميل أو التليفون…" value="' + esc(f.ordQ) + '" data-live="ordQ">' + ic('search', 'sm') + '</div></div>';
@@ -32,37 +32,43 @@ VIEWS.orders = function () {
     var c = all.filter(function (o) { return ordFilter(o, x[0]); }).length;
     return '<button class="chip ' + (f.ordStatus === x[0] ? 'on' : '') + '" data-act="ordFilter" data-v="' + x[0] + '">' + x[1] + ' <span class="num">' + c + '</span></button>';
   }).join('') + '</div>';
-  h += list.length ? '<div class="card list">' + list.map(orderRow).join('') + '</div>' : emptyBox('receipt', 'مفيش طلبات هنا', 'newOrder', 'عرض سعر جديد');
-  h += '<button class="btn btn-primary fab" data-act="newOrder">' + ic('plus') + 'عرض سعر</button>';
+  h += list.length ? '<div class="card list">' + list.map(orderRow).join('') + '</div>' : emptyBox('receipt', 'مفيش طلبات هنا', 'newOrder', 'طلب جديد');
+  h += '<button class="btn btn-primary fab" data-act="newOrder">' + ic('plus') + 'طلب جديد</button>';
   return h;
 };
 ACT.ordFilter = function (el) { S.filters.ordStatus = el.getAttribute('data-v'); render(); };
 LIVE.ordQ = function (t) { S.filters.ordQ = t.value; softRender('ordQ'); };
 
-/* ---------- quote editor ---------- */
+/* ---------- order editor (new order, quote, or changing what was agreed on a confirmed order) ---------- */
 function itemFromProduct(p) {
   return { product_id: p.id, name: p.name, category: p.category || '', qty: 1, unit_price: n(p.selling_price), spec: '', notes: '',
            labor: (p.labor || []).map(function (x) { return { kind: x.kind, amount: x.amount }; }), lines: cloneLines(p.lines), image_id: '', image_url: '' };
 }
+function blankItem(name) { return { product_id: '', name: name || '', category: '', qty: 1, unit_price: '', spec: '', notes: '', labor: [], lines: [], image_id: '', image_url: '' }; }
 function startOrder(o) {
   if (o) {
     var c = custOf(o), byItem = {};
     (o.lines || []).forEach(function (l) { (byItem[l.item_id] = byItem[l.item_id] || []).push(l); });
-    S.draft = { id: o.id, order_no: o.order_no, customer: { id: o.customer_id || '', name: c.name || '', phone: c.phone || '', address: c.address || '' },
-      order_date: o.order_date || today(), due_date: o.due_date || '', discount: n(o.discount) || '', notes: o.notes || '', full_sheets: !!o.full_sheets,
+    var agreed = o.agreed_total === '' || o.agreed_total === null || o.agreed_total === undefined ? '' : o.agreed_total;
+    S.draft = { id: o.id, order_no: o.order_no, status: o.status, paid: n(o.paid), prices: o.status !== 'quote' && o.snapshot ? o.snapshot.prices || {} : null,
+      customer: { id: o.customer_id || '', name: c.name || '', phone: c.phone || '', address: c.address || '' }, title: o.title || '',
+      order_date: o.order_date || today(), due_date: o.due_date || '', agreed_total: agreed, discount: n(o.discount) || '', notes: o.notes || '', full_sheets: !!o.full_sheets,
       extras: (o.extras || []).map(function (e) { return { kind: e.kind, amount: e.amount }; }), waste: Object.assign({}, o.waste || {}),
+      pay: { amount: '', method: 'cash', date: today() },
       items: (o.items || []).map(function (it) {
-        return { product_id: it.product_id, name: it.name, category: it.category, qty: n(it.qty), unit_price: n(it.unit_price), spec: it.spec || '', notes: it.notes || '',
+        return { id: it.id, product_id: it.product_id, name: it.name, category: it.category, qty: n(it.qty), unit_price: n(it.unit_price) || '', spec: it.spec || '', notes: it.notes || '',
+                 made: Math.max(n(it.made_qty), n(it.out_item) + n(it.out_product)),
                  labor: (it.labor || []).map(function (x) { return { kind: x.kind, amount: x.amount }; }), lines: cloneLines(byItem[it.id]), image_id: it.image_id || '', image_url: it.image_url || '' };
       }), rid: rid() };
   } else {
-    S.draft = { id: '', customer: { id: '', name: '', phone: '', address: '' }, order_date: today(), due_date: '', discount: '', notes: '', full_sheets: false,
-      extras: [], waste: {}, items: [], rid: rid() };
+    S.draft = { id: '', status: 'quote', paid: 0, prices: null, customer: { id: '', name: '', phone: '', address: '' }, title: '', order_date: today(), due_date: '',
+      agreed_total: '', discount: '', notes: '', full_sheets: false, extras: [], waste: {}, pay: { amount: '', method: 'cash', date: today() }, items: [], rid: rid() };
   }
   go('orderEdit');
 }
 ACT.newOrder = function () { startOrder(null); };
 ACT.ordEdit = function (el) { startOrder(orderById(el.getAttribute('data-p'))); };
+function isLockedDraft(d) { return !!(d && d.id && d.status && d.status !== 'quote'); }
 
 function draftEstimate(d) {
   var mm = matMap(), lbi = {};
@@ -72,14 +78,18 @@ function draftEstimate(d) {
     return { id: k, name: it.name, qty: n(it.qty), unit_price: n(it.unit_price), labor: (it.labor || []).map(function (x) { return { amount: n(x.amount) }; }) };
   });
   var waste = {}; Object.keys(d.waste || {}).forEach(function (k) { if (String(d.waste[k]).trim() !== '') waste[k] = n(d.waste[k]); });
-  return orderEstimate_({ discount: n(d.discount), extras: (d.extras || []).map(function (e) { return { amount: n(e.amount) }; }), waste: waste, full_sheets: !!d.full_sheets }, items, lbi, mm, S.data.settings);
+  var ag = String(d.agreed_total === undefined || d.agreed_total === null ? '' : d.agreed_total).trim();
+  return orderEstimate_({ discount: n(d.discount), agreed_total: ag === '' ? '' : n(ag), extras: (d.extras || []).map(function (e) { return { amount: n(e.amount) }; }), waste: waste, full_sheets: !!d.full_sheets },
+    items, lbi, mm, S.data.settings, d.prices || undefined);
 }
 
 VIEWS.orderEdit = function () {
   var d = S.draft;
   if (!d) { S.view = 'orders'; return VIEWS.orders(); }
-  topbar(d.id ? 'تعديل عرض السعر ' + (d.order_no || '') : 'عرض سعر جديد', d.id ? { back: 'order', backP: d.id } : { back: 'orders' });
+  var locked = isLockedDraft(d);
+  topbar(!d.id ? 'طلب جديد' : (locked ? 'تعديل الطلب ' : 'تعديل عرض السعر ') + (d.order_no || ''), d.id ? { back: 'order', backP: d.id } : { back: 'orders' });
   var h = '<div class="split"><div>';
+  // customer
   h += '<div class="card pad"><div class="between mb"><b>العميل</b>' + (d.customer.id ? '<button class="link" data-act="odCustClear">تغيير</button>' : '') + '</div>';
   if (d.customer.id) {
     var c = custById(d.customer.id) || d.customer;
@@ -87,51 +97,78 @@ VIEWS.orderEdit = function () {
   } else {
     h += '<div class="grid g2"><div class="field" style="margin:0"><label>اسم العميل</label><input class="inp" id="odc_name" maxlength="60" data-live="odc" data-f="name" value="' + esc(d.customer.name) + '" placeholder="اسم العميل" autocomplete="off"></div>' +
       '<div class="field" style="margin:0"><label>تليفون (واتساب)</label><input class="inp ltr" type="tel" inputmode="tel" id="odc_phone" maxlength="25" data-live="odc" data-f="phone" value="' + esc(d.customer.phone) + '" placeholder="01xxxxxxxxx" autocomplete="off"></div></div>' +
-      '<div id="odc_sug"></div><div class="field mt" style="margin-bottom:0"><label>العنوان (للتسليم والتركيب)</label><input class="inp" id="odc_addr" maxlength="150" data-live="odc" data-f="address" value="' + esc(d.customer.address) + '"></div>';
+      '<div id="odc_sug"></div><div class="field mt" style="margin-bottom:0"><label>العنوان (للتسليم والتركيب — اختياري)</label><input class="inp" id="odc_addr" maxlength="150" data-live="odc" data-f="address" value="' + esc(d.customer.address) + '"></div>';
   }
-  h += '<div class="grid g2 mt"><div class="field" style="margin:0"><label>تاريخ عرض السعر</label><input class="inp" type="date" id="od_date" data-live="od" data-f="order_date" value="' + esc(d.order_date) + '"></div>' +
+  h += '<div class="field mt" style="margin-bottom:0"><label>الطلب</label><input class="inp" id="od_title" maxlength="60" list="od_titles" data-live="od" data-f="title" value="' + esc(d.title) + '" placeholder="مثلاً: غرفة نوم"><datalist id="od_titles">' +
+    ['غرفة نوم', 'غرفة أطفال', 'مطبخ', 'ركنة', 'انتريه', 'سفرة', 'دولاب', 'باب', 'شبابيك'].concat(cats()).map(function (x) { return '<option value="' + esc(x) + '">'; }).join('') + '</datalist></div>' +
+    '<div class="grid g2 mt"><div class="field" style="margin:0"><label>التاريخ</label><input class="inp" type="date" id="od_date" data-live="od" data-f="order_date" value="' + esc(d.order_date) + '"></div>' +
     '<div class="field" style="margin:0"><label>موعد التسليم</label><input class="inp" type="date" id="od_due" data-live="od" data-f="due_date" value="' + esc(d.due_date) + '"></div></div></div>';
 
+  // items
   var est = draftEstimate(d);
-  h += '<div class="sect"><h2>البنود</h2><span class="grow"></span><button class="btn btn-soft btn-sm" data-act="odPickProduct">' + ic('sofa', 'sm') + 'من المنتجات</button><button class="btn btn-soft btn-sm" data-act="odCustomItem">' + ic('plus', 'sm') + 'بند مخصوص</button></div>';
-  if (!d.items.length) h += '<div class="card empty"><div class="big">' + ic('sofa') + '</div>ضيف بند من المنتجات (القطع بتتنسخ وتقدر تعدل مقاساتها للعميل ده) أو بند مخصوص جديد.</div>';
+  h += '<div class="sect"><h2>القطع</h2><span class="grow"></span><button class="btn btn-soft btn-sm" data-act="odPickProduct">' + ic('sofa', 'sm') + 'من المنتجات</button></div>';
+  h += '<div class="chips mb" id="od_quick">' + quickItems().map(function (q) { return '<button class="chip" data-act="odQuick" data-v="' + esc(q) + '">+ ' + esc(q) + '</button>'; }).join('') +
+    '<button class="chip" data-act="odQuick" data-v="">+ قطعة تانية</button></div>';
+  if (!d.items.length) h += '<div class="card empty"><div class="big">' + ic('sofa') + '</div>اضغط على القطعة اللي فوق (دولاب، سرير…) واكتب مقاسها، أو اختار من المنتجات المتسجلة.</div>';
   else h += '<div class="card">' + d.items.map(function (it, i) {
-    var e = est.items['i' + i] || {}, pieces = (it.lines || []).filter(function (l) { return l.ltype === 'piece'; }).length;
-    return '<div class="icard"><div class="between"><div style="min-width:0"><b>' + esc(it.name) + '</b> ' + (it.category ? '<span class="badge b-gray">' + esc(it.category) + '</span>' : '') +
-      (it.spec ? '<div class="faint">' + esc(it.spec) + '</div>' : '') + '</div><div style="text-align:left;flex:none"><b>' + money(n(it.qty) * n(it.unit_price), 0) + '</b><div class="faint"><span class="num">' + fmt(it.qty, 0) + '</span> × ' + money(it.unit_price, 0) + '</div></div></div>' +
-      '<div class="calc"><span>' + pieces + ' قطعة مقاسات</span><span>تكلفة القطعة: <b>' + money(e.unit_cost, 0) + '</b></span><span class="' + profitCls(e.profit) + '">ربح البند: <b>' + money(e.profit, 0) + '</b></span>' +
-      (!(n(it.unit_price) > 0) ? '<span class="badge b-warn">' + ic('alert', 'sm') + 'السعر مش متحدد</span>' : '') + '</div>' +
-      '<div class="row mt" style="gap:8px"><button class="btn btn-ghost btn-sm" data-act="odEditItem" data-i="' + i + '">' + ic('edit', 'sm') + 'القطع والمقاسات</button><button class="iconbtn sm" data-act="odDupItem" data-i="' + i + '" aria-label="تكرار">' + ic('copy', 'sm') + '</button><button class="iconbtn sm" data-act="odDelItem" data-i="' + i + '" aria-label="حذف">' + ic('trash', 'sm') + '</button></div></div>';
+    var e = est.items['i' + i] || {}, pieces = (it.lines || []).filter(function (l) { return l.ltype === 'piece'; }).length, nl = (it.lines || []).length;
+    return '<div class="icard oi"><div class="oi-top"><input class="inp oi-name" maxlength="80" placeholder="القطعة" data-live="odi" data-i="' + i + '" data-f="name" value="' + esc(it.name) + '">' +
+      '<div class="oi-qty"><label>العدد</label><input class="inp ltr" inputmode="numeric" data-live="odi" data-i="' + i + '" data-f="qty" value="' + esc(it.qty) + '"></div>' +
+      (n(it.made) > 0 ? '<span class="badge b-ok oi-del" title="اتسجل له تصنيع">اتصنع ' + fmt(it.made, 0) + '</span>' : '<button class="iconbtn sm oi-del" data-act="odDelItem" data-i="' + i + '" aria-label="حذف">' + ic('trash', 'sm') + '</button>') + '</div>' +
+      '<input class="inp mt" maxlength="200" placeholder="المقاس والتفاصيل (مثلاً: مقاس 270، عرض 50)" data-live="odi" data-i="' + i + '" data-f="spec" value="' + esc(it.spec) + '">' +
+      '<div class="oi-bot"><div class="oi-price"><label>سعر القطعة (اختياري)</label><input class="inp ltr" inputmode="decimal" placeholder="—" data-live="odi" data-i="' + i + '" data-f="unit_price" value="' + esc(it.unit_price) + '"></div>' +
+      '<button class="btn btn-ghost btn-sm" data-act="odEditItem" data-i="' + i + '">' + ic('cut', 'sm') + (nl ? pieces + ' قطعة مقاسات · تكلفة ' + money(e.unit_cost, 0) : 'المقاسات والخامات') + '</button>' +
+      '<button class="iconbtn sm" data-act="odDupItem" data-i="' + i + '" aria-label="تكرار">' + ic('copy', 'sm') + '</button></div></div>';
   }).join('') + '</div>';
+  h += '<div class="field mt"><label>تفاصيل الاتفاق (بتظهر للعميل في الفاتورة)</label><textarea class="inp" maxlength="500" rows="3" data-live="od" data-f="notes" placeholder="مثلاً: خشب زان، لون جوز، التركيب على الورشة">' + esc(d.notes) + '</textarea></div>';
 
-  h += '<div class="sect"><h2>الخصم ومصاريف الطلب</h2></div><div class="card pad">' +
-    '<div class="field"><label>خصم للعميل (ج)</label><input class="inp ltr" inputmode="decimal" id="od_discount" data-live="od" data-f="discount" value="' + esc(d.discount) + '" placeholder="0"></div>' +
+  // money
+  h += '<div class="sect"><h2>الحساب</h2></div><div class="card pad">' +
+    '<div class="field"><label>المبلغ المتفق عليه (الإجمالي للعميل)</label><input class="inp ltr big-inp" inputmode="decimal" id="od_agreed" data-live="od" data-f="agreed_total" value="' + esc(d.agreed_total) + '" placeholder="' + (est.items_total > 0 ? fmt(est.items_total - n(d.discount), 0) : 'مثلاً 130000') + '">' +
+    '<div class="faint">لو سبته فاضي، الإجمالي = مجموع أسعار القطع.</div></div>' +
+    (!locked ? '<div class="field"><label>المدفوع دلوقتي (عربون)</label><input class="inp ltr" inputmode="decimal" id="od_paynow" data-live="odp" data-f="amount" value="' + esc(d.pay.amount) + '" placeholder="0"></div>' +
+      '<div class="grid g2"><div class="field"><label>طريقة الدفع</label><select class="inp" data-change="odpm">' + payOpts(d.pay.method) + '</select></div><div class="field"><label>تاريخ الدفع</label><input class="inp" type="date" data-live="odp" data-f="date" value="' + esc(d.pay.date) + '"></div></div>'
+      : '<div class="faint mb">الدفعات بتتسجل وتتعدل من صفحة الطلب أو صفحة العميل.</div>') +
+    '<div id="od_money"></div></div>';
+
+  // more
+  h += '<details class="card pad mt more"' + (n(d.discount) || d.extras.length || d.full_sheets ? ' open' : '') + '><summary><b>تفاصيل أكتر</b> <span class="faint">خصم، مصاريف الطلب، الهالك</span></summary><div class="mt">' +
+    '<div class="field"><label>خصم للعميل (ج)' + (String(d.agreed_total).trim() !== '' ? ' — مش بيتحسب مع المبلغ المتفق عليه' : '') + '</label><input class="inp ltr" inputmode="decimal" id="od_discount" data-live="od" data-f="discount" value="' + esc(d.discount) + '" placeholder="0"></div>' +
     '<div class="field"><label>مصاريف على الورشة متوقعة للطلب (نقل، تركيب، عمولة…)</label>' + d.extras.map(function (e, i) {
       return '<div class="combo mb"><input class="inp" maxlength="40" placeholder="البند" data-live="ode" data-i="' + i + '" data-f="kind" value="' + esc(e.kind) + '"><input class="inp ltr" style="max-width:140px" inputmode="decimal" placeholder="المبلغ" data-live="ode" data-i="' + i + '" data-f="amount" value="' + esc(e.amount) + '"><button class="iconbtn" style="height:48px;width:48px" data-act="odDelExtra" data-i="' + i + '">' + ic('trash', 'sm') + '</button></div>';
     }).join('') + '<button class="link" data-act="odAddExtra">+ إضافة مصروف</button></div>' +
-    '<label class="switch"><input type="checkbox" id="od_full" data-change="odFull"' + (d.full_sheets ? ' checked' : '') + '>احسب ألواح كاملة (بدل المساحة + الهالك)</label>' +
-    '<div class="field mt" style="margin-bottom:0"><label>ملاحظات</label><textarea class="inp" maxlength="500" data-live="od" data-f="notes">' + esc(d.notes) + '</textarea></div></div>';
-
+    '<label class="switch"><input type="checkbox" id="od_full" data-change="odFull"' + (d.full_sheets ? ' checked' : '') + '>احسب ألواح كاملة (بدل المساحة + الهالك)</label>';
   if (est.materials.length) {
-    h += '<div class="sect"><h2>نسبة الهالك في الطلب ده</h2><span class="faint">سيبها فاضية للنسبة العادية</span></div><div class="card tscroll"><table class="t"><tbody>' + est.materials.map(function (x) {
+    h += '<div class="lbl2 mt">نسبة الهالك في الطلب ده <span class="faint">(سيبها فاضية للنسبة العادية)</span></div><div class="tscroll"><table class="t"><tbody>' + est.materials.map(function (x) {
       var m = matById(x.material_id), def = m ? wasteOf_(m, S.data.settings) : 0, cur = d.waste[x.material_id];
       return '<tr><td>' + esc(x.name) + '</td><td class="n" style="width:150px"><div class="combo" style="align-items:center"><input class="inp sm ltr" inputmode="decimal" data-live="odw" data-m="' + esc(x.material_id) + '" placeholder="' + fmt(def, 1) + '" value="' + esc(cur === undefined ? '' : cur) + '"><span class="faint">%</span></div></td></tr>';
     }).join('') + '</tbody></table></div>';
   }
+  h += '</div></details>';
+
   h += '</div><div class="sticky"><div id="od_sum"></div><div id="od_need" class="mt"></div>' +
-    '<div class="grid g2 mt"><button class="btn btn-ghost" data-lockable data-act="odSave">' + ic('save', 'sm') + 'حفظ عرض السعر</button><button class="btn btn-primary" data-lockable data-act="odConfirm">' + ic('check', 'sm') + 'تأكيد الطلب</button></div>' +
-    '<div class="faint mt">التأكيد بيثبّت الأسعار والتكلفة المتوقعة. الخامات مش بتتخصم من المخزن غير لما تصرفها أو تسجل تصنيع.</div></div></div>';
+    (locked ? '<button class="btn btn-primary btn-block mt" data-lockable data-act="odSave">' + ic('save', 'sm') + 'حفظ التعديلات</button>' +
+      '<div class="faint mt">التكلفة المتوقعة بتتحسب بالأسعار اللي اتثبتت وقت التأكيد (والخامات الجديدة بسعر النهارده).</div>'
+      : '<div class="grid g2 mt"><button class="btn btn-ghost" data-lockable data-act="odSave">' + ic('save', 'sm') + 'حفظ كعرض سعر</button><button class="btn btn-primary" data-lockable data-act="odConfirm">' + ic('check', 'sm') + 'تأكيد الطلب</button></div>' +
+      '<div class="faint mt">التأكيد بيسجل المدفوع ويثبّت الأسعار. الخامات مش بتتخصم من المخزن غير لما تصرفها أو تسجل تصنيع.</div>') + '</div></div>';
   return h;
 };
 AFTER.orderEdit = function () { odCalc(); odSuggest(); };
 function odCalc() {
   var d = S.draft; if (!d || S.view !== 'orderEdit') return;
-  var e = draftEstimate(d), mm = matMap();
+  var e = draftEstimate(d), mm = matMap(), locked = isLockedDraft(d);
+  var paid = locked ? n(d.paid) : n(d.pay.amount), rem = e.total - paid;
+  var mb = document.getElementById('od_money');
+  if (mb) mb.innerHTML = '<div class="moneybox"><div><span>الإجمالي</span><b>' + money(e.total, 0) + '</b></div><div><span>' + (locked ? 'المدفوع لحد دلوقتي' : 'المدفوع') + '</span><b>' + money(paid, 0) + '</b></div>' +
+    '<div class="' + (rem > 0.009 ? 'due' : 'ok') + '"><span>' + (rem < -0.009 ? 'ليه عندنا' : 'الباقي') + '</span><b>' + money(Math.abs(rem), 0) + '</b></div></div>';
+  var noCost = d.items.filter(function (it) { return !(it.lines || []).length && !(it.labor || []).some(function (x) { return n(x.amount) > 0; }); }).length;
   var s = document.getElementById('od_sum');
-  if (s) s.innerHTML = '<div class="card pad"><div class="between mb"><b style="font-size:17px">ملخص عرض السعر</b><span class="badge b-info">بأسعار النهارده</span></div>' +
-    kv('قيمة البنود', money(e.items_total)) + (e.discount ? kv('الخصم', '− ' + money(e.discount)) : '') + kv('الإجمالي للعميل', '<b>' + money(e.total) + '</b>') +
-    kv('خامات', '− ' + money(e.material_cost)) + kv('مصنعية وشغل بره', '− ' + money(e.labor_cost)) + (e.extra_cost ? kv('مصاريف الطلب', '− ' + money(e.extra_cost)) : '') +
+  if (s) s.innerHTML = '<div class="card pad"><div class="between mb"><b style="font-size:17px">الملخص</b>' + (locked ? '<span class="badge b-wood">أسعار مثبتة</span>' : '<span class="badge b-info">بأسعار النهارده</span>') + '</div>' +
+    (e.agreed ? kv('المبلغ المتفق عليه', '<b>' + money(e.total) + '</b>') : kv('قيمة القطع', money(e.items_total)) + (e.discount ? kv('الخصم', '− ' + money(e.discount)) : '') + kv('الإجمالي للعميل', '<b>' + money(e.total) + '</b>')) +
+    kv(locked ? 'المدفوع' : 'المدفوع دلوقتي', money(paid)) + '<div class="kv total"><span>' + (rem < -0.009 ? 'ليه عندنا' : 'الباقي على العميل') + '</span><span class="' + (rem > 0.009 ? 'neg' : 'pos') + '">' + money(Math.abs(rem)) + '</span></div>' +
+    '<div class="lbl2 mt">للورشة بس</div>' + kv('خامات', '− ' + money(e.material_cost)) + kv('مصنعية وشغل بره', '− ' + money(e.labor_cost)) + (e.extra_cost ? kv('مصاريف الطلب', '− ' + money(e.extra_cost)) : '') +
     '<div class="kv total big"><span>الربح المتوقع</span><span class="' + profitCls(e.profit) + '">' + money(e.profit) + '</span></div>' + kv('هامش الربح', pct(e.margin)) +
+    (noCost ? '<div class="callout info mt">' + ic('cut', 'sm') + '<div>' + noCost + ' قطعة من غير مقاسات وخامات — تكلفتها مش محسوبة. تقدر تضيفها بعدين من "المقاسات والخامات".</div></div>' : '') +
     (e.warnings.length ? '<div class="callout warn mt">' + ic('alert', 'sm') + '<div>' + e.warnings.slice(0, 5).map(esc).join('<br>') + '</div></div>' : '') + '</div>';
   var nd = document.getElementById('od_need');
   if (nd) nd.innerHTML = needTable(e.materials.map(function (x) { return { m: mm[x.material_id], need: x.gross, issued: 0, sheets: x.sheets }; }), 'الخامات المطلوبة للطلب');
@@ -148,6 +185,9 @@ function needTable(rows, title) {
   }).join('') + '</tbody></table></div>';
 }
 LIVE.od = function (t) { S.draft[t.getAttribute('data-f')] = t.value; odCalc(); };
+LIVE.odi = function (t) { S.draft.items[+t.getAttribute('data-i')][t.getAttribute('data-f')] = t.value; odCalc(); };
+LIVE.odp = function (t) { S.draft.pay[t.getAttribute('data-f')] = t.value; odCalc(); };
+CHANGE.odpm = function (t) { S.draft.pay.method = t.value; };
 LIVE.ode = function (t) { S.draft.extras[+t.getAttribute('data-i')][t.getAttribute('data-f')] = t.value; odCalc(); };
 LIVE.odw = function (t) { S.draft.waste[t.getAttribute('data-m')] = t.value; odCalc(); };
 LIVE.odc = function (t) { S.draft.customer[t.getAttribute('data-f')] = t.value; odSuggest(); };
@@ -159,23 +199,31 @@ function odSuggest() {
   var list = (S.data.customers || []).filter(function (x) {
     return isActive(x) && ((q.length >= 2 && String(x.name).toLowerCase().indexOf(q) >= 0) || (ph.length >= 4 && String(x.phone || '').replace(/\D/g, '').indexOf(ph) >= 0));
   }).slice(0, 5);
-  box.innerHTML = list.length ? '<div class="suggest">' + list.map(function (x) { return '<button data-act="odCustPick" data-p="' + esc(x.id) + '">' + ic('users', 'sm') + '<span><b>' + esc(x.name) + '</b> <span class="faint num">' + esc(x.phone || '') + '</span></span></button>'; }).join('') + '</div>' : '';
+  box.innerHTML = list.length ? '<div class="suggest"><div class="faint" style="padding:4px 8px">عميل متسجل؟ اختاره:</div>' + list.map(function (x) { return '<button data-act="odCustPick" data-p="' + esc(x.id) + '">' + ic('users', 'sm') + '<span><b>' + esc(x.name) + '</b> <span class="faint num">' + esc(x.phone || '') + '</span></span></button>'; }).join('') + '</div>' : '';
 }
 ACT.odCustPick = function (el) { var c = custById(el.getAttribute('data-p')); S.draft.customer = { id: c.id, name: c.name, phone: c.phone, address: c.address }; render(); };
 ACT.odCustClear = function () { S.draft.customer = { id: '', name: '', phone: '', address: '' }; render(); };
 ACT.odAddExtra = function () { S.draft.extras.push({ kind: '', amount: '' }); render(); };
 ACT.odDelExtra = function (el) { S.draft.extras.splice(+el.getAttribute('data-i'), 1); render(); };
+ACT.odQuick = function (el) {
+  var name = el.getAttribute('data-v') || '';
+  S.draft.items.push(blankItem(name)); render();
+  var i = S.draft.items.length - 1, f = document.querySelector('[data-live=odi][data-i="' + i + '"][data-f=' + (name ? 'spec' : 'name') + ']');
+  if (f) { f.focus(); if (f.scrollIntoView) f.scrollIntoView({ block: 'center' }); }
+};
 ACT.odEditItem = function (el) { var i = +el.getAttribute('data-i'); startItemEditor('order', S.draft.items[i], i); };
 ACT.odCustomItem = function () { startItemEditor('order', null, -1); };
-ACT.odDupItem = function (el) { var i = +el.getAttribute('data-i'); var c = JSON.parse(JSON.stringify(S.draft.items[i])); c.image = null; S.draft.items.splice(i + 1, 0, c); render(); };
+ACT.odDupItem = function (el) { var i = +el.getAttribute('data-i'); var c = JSON.parse(JSON.stringify(S.draft.items[i])); c.image = null; delete c.id; c.made = 0; S.draft.items.splice(i + 1, 0, c); render(); };
 ACT.odDelItem = function (el) {
-  var i = +el.getAttribute('data-i');
-  confirmBox('حذف البند', 'هتشيل "' + esc(S.draft.items[i].name) + '" من عرض السعر.', 'حذف', true).then(function (y) { if (y) { S.draft.items.splice(i, 1); render(); } });
+  var i = +el.getAttribute('data-i'), it = S.draft.items[i];
+  if (!String(it.name).trim() && !String(it.spec).trim() && !(it.lines || []).length) { S.draft.items.splice(i, 1); render(); return; }
+  confirmBox('حذف القطعة', 'هتشيل "' + esc(it.name || 'القطعة') + '" من الطلب.', 'حذف', true).then(function (y) { if (y) { S.draft.items.splice(i, 1); render(); } });
 };
 ACT.odPickProduct = function () {
   var list = prods().filter(isActive);
   modal({ title: 'اختار منتج', wide: true, body: '<div class="search mb"><input class="inp" id="pp_q" placeholder="ابحث…" data-live="ppq">' + ic('search', 'sm') + '</div><div id="pp_list"></div>' +
-    (list.length ? '' : emptyBox('sofa', 'لسه مفيش منتجات في الكتالوج', 'newProduct', 'منتج جديد')),
+    (list.length ? '' : emptyBox('sofa', 'لسه مفيش منتجات في الكتالوج', 'newProduct', 'منتج جديد')) +
+    '<button class="btn btn-ghost btn-block mt" data-act="odCustomItem">' + ic('plus', 'sm') + 'قطعة جديدة بالمقاسات والخامات</button>',
     mount: function () { ppList(''); } });
 };
 function ppList(q) {
@@ -187,59 +235,80 @@ function ppList(q) {
   }).join('') + '</div>';
 }
 LIVE.ppq = function (t) { ppList(t.value); };
-ACT.odAddProduct = function (el) { S.draft.items.push(itemFromProduct(prodById(el.getAttribute('data-p')))); closeModal(); render(); toast('اتضاف — تقدر تعدل المقاسات للعميل من "القطع والمقاسات"', 'ok'); };
+ACT.odAddProduct = function (el) { S.draft.items.push(itemFromProduct(prodById(el.getAttribute('data-p')))); closeModal(); render(); toast('اتضاف — تقدر تعدل المقاسات للعميل ده من "المقاسات والخامات"', 'ok'); };
 
 function odPayload() {
   var d = S.draft, err = '';
-  if (!d.items.length) { toast('ضيف بند واحد على الأقل', 'err'); return null; }
-  var items = d.items.map(function (it, i) {
-    var lp = ieLinesPayload({ lines: it.lines || [] });
-    if (lp.error && !err) err = it.name + ': ' + lp.error;
+  var list = d.items.filter(function (it) { return String(it.name).trim() || String(it.spec).trim() || (it.lines || []).length || String(it.unit_price).trim(); });
+  if (!list.length) { toast('ضيف قطعة واحدة على الأقل', 'err'); return null; }
+  var items = list.map(function (it, i) {
+    var lp = ieLinesPayload({ lines: it.lines || [] }), nm = String(it.name || '').trim();
+    if (!nm && !err) err = 'اكتب اسم القطعة رقم ' + (i + 1);
+    if (lp.error && !err) err = nm + ': ' + lp.error;
     var q = parseIn(it.qty), pr = parseIn(it.unit_price);
-    if ((!(q >= 1) || Math.floor(q) !== q) && !err) err = it.name + ': الكمية لازم رقم صحيح';
-    if (isNaN(pr) && !err) err = it.name + ': السعر غير صحيح';
-    return { product_id: it.product_id || '', name: it.name, category: it.category, spec: it.spec, qty: q, unit_price: pr === '' ? 0 : pr, notes: it.notes,
-             labor: (it.labor || []).filter(function (x) { return String(x.amount).trim() !== ''; }).map(function (x) { return { kind: x.kind, amount: parseIn(x.amount) }; }),
+    if ((!(q >= 1) || Math.floor(q) !== q) && !err) err = (nm || 'القطعة') + ': العدد لازم رقم صحيح';
+    if ((isNaN(pr) || pr < 0) && !err) err = (nm || 'القطعة') + ': السعر غير صحيح';
+    var x = { product_id: it.product_id || '', name: nm, category: it.category, spec: it.spec, qty: q, unit_price: pr === '' ? 0 : pr, notes: it.notes,
+             labor: (it.labor || []).filter(function (y) { return String(y.amount).trim() !== ''; }).map(function (y) { return { kind: y.kind, amount: parseIn(y.amount) }; }),
              lines: lp.lines || [], image_id: it.image_id || '', image: it.image || null, removeImage: !!it.removeImage };
+    if (it.id) x.id = it.id;
+    return x;
   });
-  var disc = parseIn(d.discount);
-  if (isNaN(disc)) err = err || 'الخصم غير صحيح';
+  var disc = parseIn(d.discount), ag = parseIn(d.agreed_total);
+  if (isNaN(disc) || disc < 0) err = err || 'الخصم غير صحيح';
+  if (isNaN(ag) || ag < 0) err = err || 'المبلغ المتفق عليه غير صحيح';
   if (err) { toast(err, 'err'); return null; }
   var waste = {}; Object.keys(d.waste).forEach(function (k) { var v = parseIn(d.waste[k]); if (v !== '' && !isNaN(v)) waste[k] = v; });
-  return { id: d.id, customer: d.customer.id ? { id: d.customer.id } : { name: d.customer.name, phone: d.customer.phone, address: d.customer.address },
-    order_date: d.order_date, due_date: d.due_date, discount: disc === '' ? 0 : disc, notes: d.notes, full_sheets: !!d.full_sheets, waste: waste,
+  return { id: d.id, customer: d.customer.id ? { id: d.customer.id } : { name: d.customer.name, phone: d.customer.phone, address: d.customer.address }, title: d.title,
+    order_date: d.order_date, due_date: d.due_date, agreed_total: ag, discount: disc === '' ? 0 : disc, notes: d.notes, full_sheets: !!d.full_sheets, waste: waste,
     extras: d.extras.filter(function (e) { return String(e.amount).trim() !== ''; }).map(function (e) { return { kind: e.kind || 'مصروف', amount: parseIn(e.amount) }; }),
     items: items };
 }
 ACT.odSave = function () {
   var pl = odPayload(); if (!pl) return;
-  run('saveOrder', pl, { rid: S.draft.rid, ok: 'اتحفظ عرض السعر' }).then(function (r) { if (r) { S.draft = null; go('order', r.result.id); } });
+  var locked = isLockedDraft(S.draft);
+  if (locked && !draftEstimate(S.draft).total && !confirmZero()) return;
+  run('saveOrder', pl, { rid: S.draft.rid, ok: locked ? 'اتحفظت التعديلات' : 'اتحفظ عرض السعر' }).then(function (r) { if (r) { S.draft = null; go('order', r.result.id); } });
 };
+function confirmZero() { toast('اكتب المبلغ المتفق عليه أو أسعار القطع', 'err'); var f = document.getElementById('od_agreed'); if (f) f.focus(); return false; }
 ACT.odConfirm = function () {
   var pl = odPayload(); if (!pl) return;
-  if (!pl.customer.id && !String(pl.customer.name || '').trim()) return toast('اكتب اسم العميل قبل التأكيد', 'err');
-  var tot = draftEstimate(S.draft).total;
-  depositModal(tot, function (dep) {
-    pl.confirm = true; pl.deposit = dep;
-    run('saveOrder', pl, { rid: S.draft.rid }).then(function (r) {
-      if (!r) return;
-      S.draft = null;
-      if (r.result.confirmError) toast('اتحفظ كعرض سعر بس متأكدش: ' + r.result.confirmError, 'err'); else toast('اتأكد الطلب' + (dep ? ' واتسجل العربون' : ''), 'ok');
-      go('order', r.result.id);
-    });
+  var d = S.draft;
+  if (!pl.customer.id && !String(pl.customer.name || '').trim()) { toast('اكتب اسم العميل', 'err'); var f = document.getElementById('odc_name'); if (f) f.focus(); return; }
+  var tot = draftEstimate(d).total;
+  if (!(tot > 0)) return confirmZero();
+  var a = parseIn(d.pay.amount);
+  if (isNaN(a) || a < 0) return toast('اكتب المبلغ المدفوع صح', 'err');
+  if (a > tot + 0.01) return toast('المدفوع أكبر من إجمالي الطلب', 'err');
+  pl.confirm = true; pl.deposit = a > 0 ? { amount: a, method: d.pay.method, date: d.pay.date } : null;
+  run('saveOrder', pl, { rid: d.rid }).then(function (r) {
+    if (!r) return;
+    S.draft = null;
+    if (r.result.confirmError) { toast('اتحفظ كعرض سعر بس متأكدش: ' + r.result.confirmError, 'err'); go('order', r.result.id); return; }
+    go('order', r.result.id);
+    afterMoneyModal(r.result.id, a > 0 ? 'اتأكد الطلب واتسجل ' + fmt(a, 0) + ' ج' : 'اتأكد الطلب', r.result.payment_id);
   });
 };
+/** After money changes: offer to send the account picture to the customer right away. */
+function afterMoneyModal(orderId, title, payId) {
+  var o = orderById(orderId) || {}, c = custOf(o);
+  modal({ title: title, body: '<div class="moneybox"><div><span>الإجمالي</span><b>' + money(o.total, 0) + '</b></div><div><span>المدفوع</span><b>' + money(o.paid, 0) + '</b></div><div class="' + (n(o.remaining) > 0.009 ? 'due' : 'ok') + '"><span>' + (n(o.remaining) < -0.009 ? 'ليه عندنا' : 'الباقي') + '</span><b>' + money(Math.abs(n(o.remaining)), 0) + '</b></div></div>' +
+    (c.phone ? '<div class="muted mt">تبعت للعميل صورة الحساب على واتساب؟</div>' : '<div class="faint mt">ضيف رقم العميل عشان تقدر تبعتله الحساب على واتساب.</div>'),
+    footer: '<button class="btn btn-ghost" data-act="closeModal">بعدين</button>' + (payId ? '<button class="btn btn-soft" data-act="nav" data-v="receipt" data-p="' + esc(payId) + '">' + ic('receipt', 'sm') + 'الإيصال</button>' : '') +
+      '<button class="btn" style="background:#1FA855;color:#fff" data-act="nav" data-v="statement" data-p="o:' + esc(orderId) + '">' + WA_ICON + 'صورة الحساب</button>' });
+}
+
 function depositModal(total, cb) {
-  modal({ title: 'تأكيد الطلب', body: '<div class="callout info mb">' + ic('shield', 'sm') + '<div>الأسعار والتكلفة المتوقعة هتتثبت دلوقتي — أي تغيير في أسعار الخامات بعد كده مش هيأثر على الطلب ده.</div></div>' +
-    kv('إجمالي الطلب', '<b>' + money(total) + '</b>') +
-    '<div class="field mt"><label>العربون المدفوع (اختياري)</label><input class="inp ltr" id="dp_amount" inputmode="decimal" placeholder="0"></div>' +
-    '<div class="grid g2"><div class="field"><label>طريقة الدفع</label><select class="inp" id="dp_method">' + payOpts() + '</select></div><div class="field"><label>التاريخ</label><input class="inp" type="date" id="dp_date" value="' + esc(today()) + '"></div></div>',
+  modal({ title: 'تأكيد الطلب', body: kv('إجمالي الطلب', '<b>' + money(total) + '</b>') +
+    '<div class="field mt"><label>المدفوع (عربون — اختياري)</label><input class="inp ltr" id="dp_amount" inputmode="decimal" placeholder="0"></div>' +
+    '<div class="grid g2"><div class="field"><label>طريقة الدفع</label><select class="inp" id="dp_method">' + payOpts() + '</select></div><div class="field"><label>التاريخ</label><input class="inp" type="date" id="dp_date" value="' + esc(today()) + '"></div></div>' +
+    '<div class="faint">الأسعار والتكلفة المتوقعة هتتثبت دلوقتي.</div>',
     footer: '<button class="btn btn-ghost" data-act="closeModal">رجوع</button><button class="btn btn-primary" id="dpGo">' + ic('check', 'sm') + 'تأكيد الطلب</button>',
     mount: function () {
       document.getElementById('dpGo').onclick = function () {
         var a = parseIn(val('dp_amount'));
-        if (isNaN(a) || a < 0) return toast('اكتب مبلغ العربون صح', 'err');
-        if (a > total + 0.01) return toast('العربون أكبر من إجمالي الطلب', 'err');
+        if (isNaN(a) || a < 0) return toast('اكتب المبلغ صح', 'err');
+        if (a > total + 0.01) return toast('المدفوع أكبر من إجمالي الطلب', 'err');
         var dep = a > 0 ? { amount: a, method: val('dp_method'), date: val('dp_date') } : null;
         closeModal(); cb(dep);
       };
@@ -271,11 +340,13 @@ VIEWS.order = function (id) {
   var c = custOf(o), st = o.status, open = isOpen(o);
   topbar((st === 'quote' ? 'عرض سعر ' : 'طلب ') + o.order_no, { back: 'orders' });
   var h = '<div class="split"><div>';
-  h += '<div class="card pad"><div class="between" style="align-items:flex-start"><div style="min-width:0"><div style="font-size:19px;font-weight:700">' + esc(c.name || 'بدون اسم') + ' <button class="link" style="font-size:13px" data-act="ordInfo" data-p="' + esc(o.id) + '">تعديل</button></div>' +
+  h += '<div class="card pad"><div class="between" style="align-items:flex-start"><div style="min-width:0"><div style="font-size:19px;font-weight:700">' + (o.customer_id ? '<a class="custlink" data-act="nav" data-v="customer" data-p="' + esc(o.customer_id) + '">' + esc(c.name || 'بدون اسم') + '</a>' : esc(c.name || 'بدون اسم')) + ' <button class="link" style="font-size:13px" data-act="ordInfo" data-p="' + esc(o.id) + '">تعديل</button></div>' +
     (c.phone ? '<div class="row" style="gap:12px">' + telLink(c.phone) + ' <a class="link" target="_blank" rel="noopener" href="' + esc(waLink(c.phone)) + '">واتساب</a></div>' : '') +
-    (c.address ? '<div class="faint">' + esc(c.address) + '</div>' : '') + '</div><div style="text-align:left">' + statusBadge(o) + '</div></div>' +
+    (c.address ? '<div class="faint">' + esc(c.address) + '</div>' : '') + (o.title ? '<div style="font-weight:600;margin-top:4px">' + esc(o.title) + '</div>' : '') + '</div><div style="text-align:left">' + statusBadge(o) + '</div></div>' +
     '<div class="grid g2 mt">' + stat('التاريخ', fmtDate(o.order_date)) + stat('موعد التسليم', o.due_date ? fmtDate(o.due_date) + (isLate(o) ? ' <span class="neg" style="font-size:13px">متأخر</span>' : '') : '<span class="faint">مش متحدد</span>') + '</div>' +
-    stepsBar(o) + (o.notes ? '<div class="muted mt">' + esc(o.notes) + '</div>' : '') +
+    stepsBar(o) + (countsAsSale(o) ? '<div class="moneybox mt"><div><span>' + (hasAgreed_(o) ? 'المتفق عليه' : 'الإجمالي') + '</span><b>' + money(o.total, 0) + '</b></div><div><span>المدفوع</span><b>' + money(o.paid, 0) + '</b></div>' +
+      '<div class="' + (n(o.remaining) > 0.009 ? 'due' : 'ok') + '"><span>' + (n(o.remaining) < -0.009 ? 'ليه عندنا' : 'الباقي') + '</span><b>' + money(Math.abs(n(o.remaining)), 0) + '</b></div></div>' : '') +
+    (o.notes ? '<div class="muted mt">' + esc(o.notes) + '</div>' : '') +
     (st === 'quote' ? '<div class="callout warn mt">' + ic('clock', 'sm') + '<div>لسه عرض سعر — الأرقام تقديرية بأسعار الخامات النهارده.</div></div>' : '') + '</div>';
 
   // actions
@@ -283,13 +354,15 @@ VIEWS.order = function (id) {
   if (st === 'quote') h += '<button class="btn btn-primary full" data-lockable data-act="ordConfirm" data-p="' + esc(o.id) + '">' + ic('check', 'sm') + 'تأكيد الطلب</button><button class="btn btn-soft" data-act="ordEdit" data-p="' + esc(o.id) + '">' + ic('edit', 'sm') + 'تعديل</button><button class="btn btn-soft" data-act="nav" data-v="doc" data-p="' + esc(o.id) + '">' + ic('receipt', 'sm') + 'عرض السعر للعميل</button>';
   if (open) {
     h += '<button class="btn btn-primary full" data-lockable data-act="ordDeliver" data-p="' + esc(o.id) + '">' + ic('truck', 'sm') + 'تسليم للعميل</button>' +
-      '<button class="btn btn-soft" data-act="ordPay" data-p="' + esc(o.id) + '">' + ic('money', 'sm') + 'تسجيل دفعة</button><button class="btn btn-soft" data-act="nav" data-v="doc" data-p="' + esc(o.id) + '">' + ic('receipt', 'sm') + 'الفاتورة</button>' +
+      '<button class="btn btn-soft" data-act="ordPay" data-p="' + esc(o.id) + '">' + ic('money', 'sm') + 'تسجيل دفعة</button>' + stmtBtn(o) +
+      '<button class="btn btn-soft" data-act="ordEdit" data-p="' + esc(o.id) + '">' + ic('edit', 'sm') + 'تعديل الطلب</button><button class="btn btn-soft" data-act="nav" data-v="doc" data-p="' + esc(o.id) + '">' + ic('receipt', 'sm') + 'الفاتورة</button>' +
       '<button class="btn btn-ghost" data-act="ordIssue" data-p="' + esc(o.id) + '">' + ic('out', 'sm') + 'صرف خامات</button><button class="btn btn-ghost" data-act="ordProduce" data-p="' + esc(o.id) + '">' + ic('saw', 'sm') + 'تسجيل تصنيع</button>';
     if (st === 'confirmed') h += '<button class="btn btn-ghost" data-lockable data-act="ordStatus" data-s="production" data-p="' + esc(o.id) + '">' + ic('play', 'sm') + 'بدأ التصنيع</button>';
     if (st === 'production' || st === 'confirmed') h += '<button class="btn btn-ghost" data-lockable data-act="ordStatus" data-s="ready" data-p="' + esc(o.id) + '">' + ic('flag', 'sm') + 'جاهز للتسليم</button>';
     if (st === 'ready') h += '<button class="btn btn-ghost" data-lockable data-act="ordStatus" data-s="production" data-p="' + esc(o.id) + '">' + ic('undo', 'sm') + 'رجوع للتصنيع</button>';
   }
-  if (st === 'delivered') h += '<button class="btn btn-primary" data-act="ordPay" data-p="' + esc(o.id) + '">' + ic('money', 'sm') + 'تسجيل دفعة</button><button class="btn btn-soft" data-act="nav" data-v="doc" data-p="' + esc(o.id) + '">' + ic('receipt', 'sm') + 'الفاتورة</button>';
+  if (st === 'delivered') h += '<button class="btn btn-primary" data-act="ordPay" data-p="' + esc(o.id) + '">' + ic('money', 'sm') + 'تسجيل دفعة</button>' + stmtBtn(o) +
+    '<button class="btn btn-soft" data-act="ordEdit" data-p="' + esc(o.id) + '">' + ic('edit', 'sm') + 'تعديل الطلب</button><button class="btn btn-soft" data-act="nav" data-v="doc" data-p="' + esc(o.id) + '">' + ic('receipt', 'sm') + 'الفاتورة</button>';
   if (st !== 'quote' && st !== 'cancelled') h += '<button class="btn btn-ghost" data-act="ordCost" data-p="' + esc(o.id) + '">' + ic('coins', 'sm') + 'تكلفة فعلية</button>';
   h += '<button class="btn btn-ghost" data-act="nav" data-v="cutlist" data-p="' + esc(o.id) + '">' + ic('cut', 'sm') + 'كشف تقطيع</button>';
   if (st !== 'quote' && st !== 'cancelled' && st !== 'delivered') h += '<button class="btn btn-ghost" data-lockable data-act="ordReopen" data-p="' + esc(o.id) + '">' + ic('undo', 'sm') + 'رجوع لعرض سعر</button>';
@@ -305,7 +378,7 @@ VIEWS.order = function (id) {
       (open && made < q ? '<button class="link" data-act="ordProduceItem" data-p="' + esc(o.id) + '" data-i="' + esc(it.id) + '">+ تسجيل تصنيع</button>' : '') + '</div>';
     var uc = st === 'quote' ? null : n(it.est_unit_cost);
     return '<div class="icard"><div class="between"><div style="min-width:0"><b>' + esc(it.name) + '</b>' + (it.spec ? '<div class="faint">' + esc(it.spec) + '</div>' : '') + (it.notes ? '<div class="faint">' + esc(it.notes) + '</div>' : '') + '</div>' +
-      '<div style="text-align:left;flex:none"><b>' + money(q * n(it.unit_price), 0) + '</b><div class="faint"><span class="num">' + fmt(q, 0) + '</span> × ' + money(it.unit_price, 0) + '</div>' + (uc !== null ? '<div class="faint">تكلفة القطعة ' + money(uc, 0) + '</div>' : '') + '</div></div>' + prog +
+      '<div style="text-align:left;flex:none">' + (n(it.unit_price) > 0 ? '<b>' + money(q * n(it.unit_price), 0) + '</b><div class="faint"><span class="num">' + fmt(q, 0) + '</span> × ' + money(it.unit_price, 0) + '</div>' : '<b>العدد <span class="num">' + fmt(q, 0) + '</span></b>') + (uc !== null && uc > 0 ? '<div class="faint">تكلفة القطعة ' + money(uc, 0) + '</div>' : '') + '</div></div>' + prog +
       (it.image_url ? '<img src="' + esc(it.image_url) + '" alt="" style="max-width:160px;border-radius:12px;margin-top:8px;display:block" onerror="this.remove()">' : '') + '</div>';
   }).join('') + '</div>';
 
@@ -320,14 +393,16 @@ VIEWS.order = function (id) {
   h += '</div><div class="sticky">';
 
   // money
-  h += '<div class="card pad"><b style="font-size:17px">الحساب</b><div class="mt">' + kv('قيمة البنود', money(o.items_total)) + (n(o.discount) ? kv('الخصم', '− ' + money(o.discount)) : '') +
-    '<div class="kv total"><span>الإجمالي</span><span>' + money(o.total) + '</span></div>' +
-    (st !== 'quote' ? kv('المدفوع', money(o.paid)) + '<div class="kv total big"><span>الباقي على العميل</span><span class="' + (n(o.remaining) > 0.009 ? 'neg' : 'pos') + '">' + money(o.remaining) + '</span></div>' : '') + '</div>';
+  var agreed = hasAgreed_(o);
+  h += '<div class="card pad"><div class="between"><b style="font-size:17px">الحساب</b>' + (st !== 'cancelled' ? '<button class="link" data-act="ordEdit" data-p="' + esc(o.id) + '">تعديل الاتفاق</button>' : '') + '</div><div class="mt">' +
+    (agreed ? '' : kv('قيمة البنود', money(o.items_total)) + (n(o.discount) ? kv('الخصم', '− ' + money(o.discount)) : '')) +
+    '<div class="kv total"><span>' + (agreed ? 'المبلغ المتفق عليه' : 'الإجمالي') + '</span><span>' + money(o.total) + '</span></div>' +
+    (st !== 'quote' ? kv('المدفوع', money(o.paid)) + '<div class="kv total big"><span>' + (n(o.remaining) < -0.009 ? 'ليه عندنا' : 'الباقي على العميل') + '</span><span class="' + (n(o.remaining) > 0.009 ? 'neg' : 'pos') + '">' + money(Math.abs(n(o.remaining))) + '</span></div>' : '') + '</div>';
   var pays = (S.data.payments || []).filter(function (x) { return x.order_id === o.id; });
   if (pays.length) h += '<div class="list mt">' + pays.map(function (x) {
     var v = x.status === 'void';
     return '<div class="li static" style="padding:10px 0"><div class="grow"><b' + (v ? ' style="text-decoration:line-through"' : '') + '>' + (PAYKIND_AR[x.kind] || '') + ' ' + money(Math.abs(x.amount)) + '</b><div class="faint">' + fmtDate(x.pay_date) + ' · ' + (PAY_AR[x.method] || '') + ' · <span class="num">' + esc(x.receipt_no) + '</span>' + (v ? ' · ملغية' : '') + '</div></div>' +
-      (!v ? '<button class="btn btn-ghost btn-sm" data-act="nav" data-v="receipt" data-p="' + esc(x.id) + '">إيصال</button><button class="iconbtn sm" data-act="voidPay" data-p="' + esc(x.id) + '" aria-label="إلغاء">' + ic('x', 'sm') + '</button>' : '') + '</div>';
+      (!v ? payBtns(x) : '') + '</div>';
   }).join('') + '</div>';
   h += '</div>';
 
@@ -355,7 +430,8 @@ function vsRow(k, a, b) { return '<span class="k">' + k + '</span><span class="v
 ACT.ordConfirm = function (el) {
   var o = orderById(el.getAttribute('data-p')), r0 = rid();
   if (!o.customer_id) return toast('حدد العميل الأول (تعديل)', 'err');
-  depositModal(o.total, function (dep) { run('confirmOrder', { id: o.id, deposit: dep }, { rid: r0, ok: 'اتأكد الطلب' + (dep ? ' واتسجل العربون' : '') }).then(function (r) { if (r) render(); }); });
+  if (!(n(o.total) > 0)) { toast('اكتب المبلغ المتفق عليه الأول (تعديل)', 'err'); return; }
+  depositModal(o.total, function (dep) { run('confirmOrder', { id: o.id, deposit: dep }, { rid: r0 }).then(function (r) { if (r) { render(); afterMoneyModal(o.id, dep ? 'اتأكد الطلب واتسجل ' + fmt(dep.amount, 0) + ' ج' : 'اتأكد الطلب', r.result.payment_id); } }); });
 };
 ACT.ordStatus = function (el) {
   var id = el.getAttribute('data-p'), s = el.getAttribute('data-s');
@@ -412,7 +488,7 @@ ACT.ordCancel = function (el) {
 ACT.ordPay = function (el) {
   var o = orderById(el.getAttribute('data-p')), r0 = rid();
   modal({ title: 'تسجيل دفعة — ' + o.order_no, body: kv('الباقي على العميل', '<b>' + money(o.remaining) + '</b>') +
-    '<div class="field mt"><label>المبلغ</label><input class="inp ltr" id="py_amount" inputmode="decimal" value="' + (n(o.remaining) > 0 ? n(o.remaining) : '') + '"></div>' +
+    '<div class="field mt"><label>المبلغ اللي وصل</label><input class="inp ltr" id="py_amount" inputmode="decimal" placeholder="' + (n(o.remaining) > 0 ? 'الباقي ' + fmt(o.remaining, 0) : '0') + '"></div>' +
     '<div class="grid g2"><div class="field"><label>طريقة الدفع</label><select class="inp" id="py_method">' + payOpts() + '</select></div><div class="field"><label>التاريخ</label><input class="inp" type="date" id="py_date" value="' + esc(today()) + '"></div></div>' +
     '<div class="field"><label>ملاحظات</label><input class="inp" id="py_notes" maxlength="200"></div>',
     footer: footer('savePay', 'تسجيل الدفعة', 'money'), mount: function () { S.py = { order_id: o.id, rid: r0 }; } });
@@ -420,14 +496,33 @@ ACT.ordPay = function (el) {
 ACT.savePay = function () {
   var a = parseIn(val('py_amount'));
   if (!(a > 0)) return toast('اكتب المبلغ', 'err');
-  run('addPayment', { order_id: S.py.order_id, amount: a, method: val('py_method'), date: val('py_date'), notes: val('py_notes'), kind: 'payment' }, { rid: S.py.rid, ok: 'اتسجلت الدفعة' })
+  run('addPayment', { order_id: S.py.order_id, amount: a, method: val('py_method'), date: val('py_date'), notes: val('py_notes'), kind: 'payment' }, { rid: S.py.rid })
     .then(function (r) {
       if (!r) return;
-      var pid = r.result.id;
-      modal({ title: 'اتسجلت الدفعة', body: '<div class="callout ok">' + ic('check', 'sm') + '<div>تحب تبعت للعميل إيصال استلام على واتساب؟</div></div>',
-        footer: '<button class="btn btn-ghost" data-act="closeModal">لا شكرًا</button><button class="btn btn-primary" data-act="nav" data-v="receipt" data-p="' + esc(pid) + '">' + ic('receipt', 'sm') + 'الإيصال</button>' });
       render();
+      afterMoneyModal(S.py.order_id, 'اتسجلت الدفعة', r.result.id);
     });
+};
+function stmtBtn(o) { return '<button class="btn" style="background:#1FA855;color:#fff" data-act="nav" data-v="statement" data-p="o:' + esc(o.id) + '">' + WA_ICON + 'صورة الحساب</button>'; }
+function payBtns(x) {
+  return '<button class="btn btn-ghost btn-sm" data-act="nav" data-v="receipt" data-p="' + esc(x.id) + '">إيصال</button>' +
+    '<button class="iconbtn sm" data-act="payEdit" data-p="' + esc(x.id) + '" aria-label="تعديل">' + ic('edit', 'sm') + '</button>' +
+    '<button class="iconbtn sm" data-act="voidPay" data-p="' + esc(x.id) + '" aria-label="إلغاء">' + ic('x', 'sm') + '</button>';
+}
+ACT.payEdit = function (el) {
+  var x = (S.data.payments || []).find(function (p) { return p.id === el.getAttribute('data-p'); }); if (!x) return;
+  var o = orderById(x.order_id) || {}, r0 = rid();
+  modal({ title: 'تعديل ' + (PAYKIND_AR[x.kind] || 'الدفعة') + ' — ' + esc(x.receipt_no), body: '<div class="faint mb">طلب ' + esc(o.order_no || '') + (o.title ? ' · ' + esc(o.title) : '') + '</div>' +
+    '<div class="field"><label>المبلغ</label><input class="inp ltr" id="pe_amount" inputmode="decimal" value="' + Math.abs(n(x.amount)) + '"></div>' +
+    '<div class="grid g2"><div class="field"><label>طريقة الدفع</label><select class="inp" id="pe_method">' + payOpts(x.method) + '</select></div><div class="field"><label>التاريخ</label><input class="inp" type="date" id="pe_date" value="' + esc(String(x.pay_date || '').slice(0, 10)) + '"></div></div>' +
+    '<div class="field"><label>ملاحظات</label><input class="inp" id="pe_notes" maxlength="200" value="' + esc(x.notes || '') + '"></div>',
+    footer: footer('savePayEdit', 'حفظ التعديل', 'save'), mount: function () { S.pe = { id: x.id, order_id: x.order_id, rid: r0 }; } });
+};
+ACT.savePayEdit = function () {
+  var a = parseIn(val('pe_amount'));
+  if (!(a > 0)) return toast('اكتب المبلغ', 'err');
+  run('editPayment', { id: S.pe.id, amount: a, method: val('pe_method'), date: val('pe_date'), notes: val('pe_notes') }, { rid: S.pe.rid })
+    .then(function (r) { if (r) { render(); afterMoneyModal(S.pe.order_id, 'اتعدلت الدفعة'); } });
 };
 ACT.voidPay = function (el) {
   var id = el.getAttribute('data-p');

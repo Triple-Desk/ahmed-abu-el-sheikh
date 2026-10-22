@@ -154,6 +154,16 @@ t('duplicate product copies pieces', () => {
 
 console.log('\nQuotes & orders');
 let O1;
+/** The editor's payload for an existing order (items keep their ids). */
+function orderPayload(o, extra) {
+  return Object.assign({
+    id: o.id, customer: { id: o.customer_id }, title: o.title || '', order_date: o.order_date, due_date: o.due_date, discount: o.discount,
+    agreed_total: o.agreed_total === undefined ? '' : o.agreed_total, extras: o.extras, waste: o.waste, full_sheets: o.full_sheets, notes: o.notes,
+    items: o.items.map(it => ({ id: it.id, product_id: it.product_id, name: it.name, category: it.category, spec: it.spec, qty: it.qty, unit_price: it.unit_price,
+      labor: it.labor, notes: it.notes, image_id: it.image_id,
+      lines: o.lines.filter(l => l.item_id === it.id).map(l => ({ ltype: l.ltype, name: l.name, material_id: l.material_id, count: l.count, length: l.length, width: l.width, thickness: l.thickness, qty: l.qty, unit: l.unit, notes: l.notes })) }))
+  }, extra || {});
+}
 function quotePayload(extra) {
   const wl = wardLines(); wl[0].length = 240;           // customer wants a taller wardrobe (catalog untouched)
   return Object.assign({
@@ -205,7 +215,12 @@ t('confirm with deposit freezes the estimate; later price change does not touch 
   ok('saveMaterial', Object.assign({}, mat('كونتر أرو 18 مم'), { price: { amount: 3000, qty: 1, unit: 'sheet' } })); data();
   O1 = ord(O1.id); near(O1.est_cost, SNAP_COST, 'frozen');
   bad('confirmOrder', { id: O1.id }, /متأكد/);
-  bad('saveOrder', quotePayload({ id: O1.id }), /مبيتعدلش/);
+  // editing a confirmed order: items keep their ids and the cost stays at the prices frozen at confirmation
+  const ids0 = O1.items.map(i => i.id);
+  const ep = orderPayload(O1); ep.items[1].spec = 'بدرج';
+  ok('saveOrder', ep); data(); O1 = ord(O1.id);
+  near(O1.est_cost, SNAP_COST, 'still frozen after edit', 0.011); assert.strictEqual(O1.items[1].spec, 'بدرج');
+  assert.deepStrictEqual(O1.items.map(i => i.id), ids0); near(O1.total, 15800); assert.strictEqual(O1.status, 'confirmed');
   // restore price for the rest of the tests
   ok('saveMaterial', Object.assign({}, mat('كونتر أرو 18 مم'), { price: { amount: 1537.5, qty: 1, unit: 'sheet' } })); data();
 });
@@ -421,6 +436,86 @@ t('rate limit stops a flood of writes', () => {
 t('daily movement totals for reports', () => {
   data(); assert.ok(D.daily.length > 0 && D.daily.every(r => r.length === 4));
   assert.ok(D.daily.some(r => r[2] === 'ISSUE' && r[3] < 0));
+});
+
+console.log('\nAgreed price, editing what was agreed, customer account');
+let B;   // the owner's example: a bedroom agreed at 130,000, 90,000 paid
+t('quick order: new customer, items by name & size only, agreed total, paid now → confirmed', () => {
+  const r = ok('saveOrder', { customer: { name: 'محمد السيد', phone: '01099887766' }, title: 'غرفة نوم', order_date: '2026-10-22', due_date: '2026-11-20',
+    agreed_total: 130000, confirm: true, deposit: { amount: 90000, method: 'cash', date: '2026-10-22' },
+    items: [{ name: 'دولاب', spec: 'مقاس 270', qty: 1 }, { name: 'كومودينو', spec: 'عرض 50', qty: 2 }, { name: 'تسريحة', spec: 'عرض 140', qty: 1 }, { name: 'سرير', spec: '160', qty: 1 }] });
+  data(); B = ord(r.result.id);
+  assert.strictEqual(B.status, 'confirmed'); assert.strictEqual(B.title, 'غرفة نوم');
+  near(B.total, 130000); near(B.paid, 90000); near(B.remaining, 40000); near(B.items_total, 0);
+  assert.ok(r.result.payment_id); assert.strictEqual(D.payments.find(x => x.id === r.result.payment_id).kind, 'deposit');
+  assert.strictEqual(B.items.length, 4); assert.strictEqual(B.items[1].qty, 2);
+  near(B.est_profit, 130000, 'no pieces yet → no cost'); assert.ok(B.snapshot);
+  const c = D.customers.find(x => x.phone === '01099887766'); assert.ok(c && c.name === 'محمد السيد' && B.customer_id === c.id);
+});
+t('engine: an agreed total is shared over the items (prices → cost → quantity)', () => {
+  const G2 = G; const e = G2.orderEstimate_({ agreed_total: 1000, discount: 50 }, [{ id: 'a', qty: 1, unit_price: 300 }, { id: 'b', qty: 1, unit_price: 100 }], {}, {}, {});
+  near(e.total, 1000); near(e.discount, 0); near(e.items.a.revenue, 750); near(e.items.b.revenue, 250); assert.strictEqual(e.agreed, true);
+  const e2 = G2.orderEstimate_({ agreed_total: 900 }, [{ id: 'a', qty: 2 }, { id: 'b', qty: 1 }], {}, {}, {});
+  near(e2.items.a.revenue, 600); near(e2.items.b.revenue, 300);
+  const e3 = G2.orderEstimate_({ agreed_total: '', discount: 50 }, [{ id: 'a', qty: 1, unit_price: 300 }], {}, {}, {});
+  near(e3.total, 250); assert.strictEqual(e3.agreed, false);
+});
+t('money received later comes off the balance automatically', () => {
+  const c = D.customers.find(x => x.phone === '01099887766');
+  const r = ok('addCustomerPayment', { customer_id: c.id, amount: 15000, method: 'vodafone', date: '2026-10-25' }); data();
+  near(ord(B.id).remaining, 25000); assert.strictEqual(r.result.parts.length, 1); assert.strictEqual(r.result.parts[0].order_id, B.id);
+  bad('addCustomerPayment', { customer_id: c.id, amount: 0 }, /أكبر من/);
+});
+t('a payment can be corrected or cancelled any time', () => {
+  const pay = D.payments.find(x => x.order_id === B.id && x.kind === 'payment');
+  ok('editPayment', { id: pay.id, amount: 20000, method: 'instapay', date: '2026-10-26' }); data();
+  near(ord(B.id).remaining, 20000); const p2 = D.payments.find(x => x.id === pay.id);
+  near(p2.amount, 20000); assert.strictEqual(p2.method, 'instapay'); assert.strictEqual(p2.pay_date, '2026-10-26');
+  bad('editPayment', { id: pay.id, amount: -5 }, /أكبر من/);
+  const dep = D.payments.find(x => x.order_id === B.id && x.kind === 'deposit');
+  ok('editPayment', { id: dep.id, amount: 85000 }); data(); near(ord(B.id).remaining, 25000);
+  ok('editPayment', { id: dep.id, amount: 90000 }); data(); near(ord(B.id).remaining, 20000);
+});
+t('what was agreed can be changed after confirmation (total, items, sizes)', () => {
+  const ids = B.items.map(i => i.id);
+  const p = orderPayload(B, { agreed_total: 135000 });
+  p.items[0].spec = 'مقاس 280'; p.items.push({ name: 'مرآة', spec: 'فوق التسريحة', qty: 1 });
+  ok('saveOrder', p); data(); B = ord(B.id);
+  near(B.total, 135000); near(B.remaining, 25000); assert.strictEqual(B.items.length, 5); assert.strictEqual(B.items[0].spec, 'مقاس 280');
+  assert.deepStrictEqual(B.items.slice(0, 4).map(i => i.id), ids, 'kept ids'); assert.strictEqual(B.status, 'confirmed');
+  const p2 = orderPayload(B); p2.items.pop(); ok('saveOrder', p2); data(); B = ord(B.id); assert.strictEqual(B.items.length, 4);
+  bad('saveOrder', orderPayload(B, { agreed_total: -1 }), /أقل من/);
+  bad('saveOrder', Object.assign(orderPayload(B), { items: B.items.map(i => ({ id: 'OI-NOTMINE', name: i.name, qty: 1 })) }), /مش تبع/);
+});
+t('a deposit bigger than the total is refused before anything is written', () => {
+  const n0 = D.orders.length;
+  bad('saveOrder', { customer: { name: 'س ص' }, agreed_total: 1000, confirm: true, deposit: { amount: 5000 }, items: [{ name: 'باب', qty: 1 }] }, /أكبر من إجمالي/);
+  data(); assert.strictEqual(D.orders.length, n0);
+});
+t('paying more than owed: oldest balances first, the rest stays as credit', () => {
+  const c = D.customers.find(x => x.phone === '01099887766');
+  const r2 = ok('saveOrder', { customer: { id: c.id }, title: 'مطبخ', order_date: '2026-10-28', agreed_total: 30000, confirm: true, items: [{ name: 'مطبخ', spec: '3 متر', qty: 1 }] });
+  data(); const K = ord(r2.result.id); near(K.remaining, 30000);
+  const r = ok('addCustomerPayment', { customer_id: c.id, amount: 40000 }); data();
+  assert.deepStrictEqual(r.result.parts.map(x => x.order_id), [B.id, K.id]); near(ord(B.id).remaining, 0); near(ord(K.id).remaining, 15000);
+  ok('addCustomerPayment', { customer_id: c.id, amount: 20000 }); data(); near(ord(K.id).remaining, -5000, 'credit');
+  ok('addCustomerPayment', { customer_id: c.id, amount: 1000, order_id: B.id }); data(); near(ord(B.id).remaining, -1000);
+  const other = D.customers.find(x => x.phone === '01112223334');
+  bad('addCustomerPayment', { customer_id: other.id, amount: 5, order_id: B.id }, /مش للعميل/);
+});
+t('delivered order: prices and details still editable, pieces that left can not change', () => {
+  const o = ord(O1.id); assert.strictEqual(o.status, 'delivered');
+  const p = orderPayload(o, { discount: 0 }); p.items[0].unit_price = 7000; ok('saveOrder', p); data();
+  near(ord(O1.id).items_total, 17000); near(ord(O1.id).total, 17000);
+  const p2 = orderPayload(ord(O1.id)); p2.items[0].qty = 1; bad('saveOrder', p2, /اتسلم/);
+  const p3 = orderPayload(ord(O1.id)); p3.items.push({ name: 'زيادة', qty: 1 }); bad('saveOrder', p3, /اتسلم/);
+  const p4 = orderPayload(ord(O1.id)); p4.items.pop(); bad('saveOrder', p4, /اتسلم/);
+  const p5 = orderPayload(ord(O1.id), { discount: 1300 }); ok('saveOrder', p5); data(); near(ord(O1.id).total, 15700);
+});
+t('new server code upgrades the database by itself on the first call (after a backup)', () => {
+  delete G._props.SCHEMA_VERSION;
+  data(); assert.strictEqual(G._props.SCHEMA_VERSION, G.APP.VERSION);
+  assert.ok(D.settings.quick_items && JSON.parse(D.settings.quick_items).includes('دولاب'));
 });
 
 console.log(`\n${passed} passed, ${failed} failed\n`);

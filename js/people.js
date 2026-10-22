@@ -3,7 +3,8 @@
 function custBalance(c) {
   var os = (S.data.orders || []).filter(function (o) { return o.customer_id === c.id; });
   var sale = os.filter(countsAsSale);
-  return { orders: os, total: sale.reduce(function (a, o) { return a + n(o.total); }, 0), paid: sale.reduce(function (a, o) { return a + n(o.paid); }, 0),
+  var total = sale.reduce(function (a, o) { return a + n(o.total); }, 0), paid = sale.reduce(function (a, o) { return a + n(o.paid); }, 0);
+  return { orders: os, sale: sale, total: total, paid: paid, net: total - paid,
            due: sale.reduce(function (a, o) { return a + Math.max(0, n(o.remaining)); }, 0) };
 }
 VIEWS.customers = function () {
@@ -26,17 +27,53 @@ LIVE.custQ = function (t) { S.filters.custQ = t.value; softRender('custQ'); };
 VIEWS.customer = function (id) {
   var c = custById(id);
   if (!c) { topbar('العميل', { back: 'customers' }); return emptyBox('users', 'العميل مش موجود'); }
-  var b = custBalance(c);
+  var b = custBalance(c), net = b.net;
   topbar(c.name, { back: 'customers', right: '<button class="iconbtn" data-act="editCustomer" data-p="' + esc(c.id) + '" aria-label="تعديل">' + ic('edit') + '</button>' });
   var h = '<div class="split"><div><div class="card pad"><div class="hero-head"><div class="avatar" style="width:60px;height:60px;font-size:24px">' + initials(c.name) + '</div><div><div style="font-size:20px;font-weight:700">' + esc(c.name) + '</div>' +
     (c.phone ? telLink(c.phone) : '<span class="faint">من غير تليفون</span>') + (c.address ? '<div class="faint">' + esc(c.address) + '</div>' : '') + '</div></div>' +
-    '<div class="grid g3s mt">' + stat('إجمالي الطلبات', money(b.total, 0)) + stat('المدفوع', money(b.paid, 0)) + stat('الباقي عليه', '<span class="' + (b.due > 0.009 ? 'neg' : 'pos') + '">' + money(b.due, 0) + '</span>') + '</div>' +
+    '<div class="moneybox mt"><div><span>إجمالي الحساب</span><b>' + money(b.total, 0) + '</b></div><div><span>دفع</span><b>' + money(b.paid, 0) + '</b></div>' +
+    '<div class="' + (net > 0.009 ? 'due' : 'ok') + '"><span>' + (net < -0.009 ? 'ليه عندنا' : 'الباقي عليه') + '</span><b>' + money(Math.abs(net), 0) + '</b></div></div>' +
     (c.notes ? '<div class="faint mt">' + esc(c.notes) + '</div>' : '') + '</div>';
-  h += '<div class="actions mt"><button class="btn btn-primary" data-act="quoteForCustomer" data-p="' + esc(c.id) + '">' + ic('receipt', 'sm') + 'عرض سعر جديد</button>' +
-    (c.phone ? (b.due > 0.009 ? '<a class="btn" style="background:#1FA855;color:#fff" target="_blank" rel="noopener" href="' + esc(waLink(c.phone, reminderText(c, b))) + '">' + WA_ICON + 'تذكير بالباقي</a>' : '<a class="btn btn-soft" target="_blank" rel="noopener" href="' + esc(waLink(c.phone)) + '">' + WA_ICON + 'واتساب</a>') : '<span></span>') + '</div>';
+  h += '<div class="actions mt">' + (b.sale.length ? '<button class="btn btn-primary" data-act="custPay" data-p="' + esc(c.id) + '">' + ic('money', 'sm') + 'تسجيل فلوس وصلت</button>' +
+      '<button class="btn" style="background:#1FA855;color:#fff" data-act="nav" data-v="statement" data-p="' + esc(c.id) + '">' + WA_ICON + 'صورة الحساب</button>' : '') +
+    '<button class="btn btn-soft" data-act="quoteForCustomer" data-p="' + esc(c.id) + '">' + ic('plus', 'sm') + 'طلب جديد</button>' +
+    (c.phone ? (b.due > 0.009 ? '<a class="btn btn-soft" target="_blank" rel="noopener" href="' + esc(waLink(c.phone, reminderText(c, b))) + '">' + WA_ICON + 'تذكير بالباقي</a>' : '<a class="btn btn-soft" target="_blank" rel="noopener" href="' + esc(waLink(c.phone)) + '">' + WA_ICON + 'واتساب</a>') : '') + '</div>';
   h += '<div class="sect"><h2>الطلبات</h2></div>' + (b.orders.length ? '<div class="card list">' + b.orders.map(orderRow).join('') + '</div>' : '<div class="card empty">مفيش طلبات</div>');
-  h += '</div><div class="sticky"><button class="btn btn-ghost btn-block" data-act="archiveCustomer" data-p="' + esc(c.id) + '">' + ic('archive', 'sm') + (isActive(c) ? 'أرشفة العميل' : 'استرجاع العميل') + '</button></div></div>';
+  var ids = {}; b.orders.forEach(function (o) { ids[o.id] = o; });
+  var pays = (S.data.payments || []).filter(function (x) { return ids[x.order_id]; });
+  h += '</div><div class="sticky"><div class="card pad"><b style="font-size:17px">الفلوس اللي وصلت</b>' + (pays.length ? '<div class="list mt">' + pays.map(function (x) {
+    var v = x.status === 'void', o = ids[x.order_id];
+    return '<div class="li static" style="padding:10px 0"><div class="grow"><b' + (v ? ' style="text-decoration:line-through"' : '') + '>' + (PAYKIND_AR[x.kind] || '') + ' ' + money(Math.abs(x.amount), 0) + '</b><div class="faint">' + fmtDate(x.pay_date) + ' · ' + (PAY_AR[x.method] || '') + ' · طلب <span class="num">' + esc(o.order_no) + '</span>' + (v ? ' · ملغية' : '') + '</div></div>' + (!v ? payBtns(x) : '') + '</div>';
+  }).join('') + '</div>' : '<div class="faint mt">لسه مفيش فلوس متسجلة.</div>') + '</div>';
+  h += '<button class="btn btn-ghost btn-block mt" data-act="archiveCustomer" data-p="' + esc(c.id) + '">' + ic('archive', 'sm') + (isActive(c) ? 'أرشفة العميل' : 'استرجاع العميل') + '</button></div></div>';
   return h;
+};
+/** Money received from a customer: automatically off the oldest balance first (or a chosen order). */
+ACT.custPay = function (el) {
+  var c = custById(el.getAttribute('data-p')), b = custBalance(c), r0 = rid();
+  var open = b.sale.filter(function (o) { return n(o.remaining) > 0.009; });
+  modal({ title: 'فلوس وصلت من ' + esc(c.name), body: '<div class="moneybox"><div><span>الباقي عليه</span><b>' + money(Math.max(0, b.net), 0) + '</b></div></div>' +
+    '<div class="field mt"><label>المبلغ اللي وصل</label><input class="inp ltr big-inp" id="cp_amount" inputmode="decimal" placeholder="0"></div>' +
+    '<div class="grid g2"><div class="field"><label>طريقة الدفع</label><select class="inp" id="cp_method">' + payOpts() + '</select></div><div class="field"><label>التاريخ</label><input class="inp" type="date" id="cp_date" value="' + esc(today()) + '"></div></div>' +
+    (b.sale.length > 1 ? '<div class="field"><label>يتخصم من</label><select class="inp" id="cp_order"><option value="">تلقائي — الأقدم الأول</option>' + b.sale.map(function (o) { return '<option value="' + esc(o.id) + '">' + esc(o.order_no + (o.title ? ' — ' + o.title : '')) + ' (الباقي ' + fmt(o.remaining, 0) + ')</option>'; }).join('') + '</select></div>' : '') +
+    '<div class="field"><label>ملاحظات</label><input class="inp" id="cp_notes" maxlength="200"></div>' +
+    (open.length > 1 ? '<div class="faint">التلقائي بيقفل الطلب الأقدم الأول، واللي يزيد يروح على اللي بعده.</div>' : ''),
+    footer: footer('saveCustPay', 'تسجيل', 'money'), mount: function () { S.cp = { customer_id: c.id, rid: r0 }; } });
+};
+ACT.saveCustPay = function () {
+  var a = parseIn(val('cp_amount'));
+  if (!(a > 0)) return toast('اكتب المبلغ', 'err');
+  run('addCustomerPayment', { customer_id: S.cp.customer_id, order_id: val('cp_order'), amount: a, method: val('cp_method'), date: val('cp_date'), notes: val('cp_notes') }, { rid: S.cp.rid })
+    .then(function (r) {
+      if (!r) return;
+      render();
+      var parts = r.result.parts || [], c = custById(S.cp.customer_id), b = custBalance(c), net = b.net;
+      modal({ title: 'اتسجل ' + fmt(a, 0) + ' ج', body: (parts.length > 1 ? '<div class="muted mb">' + parts.map(function (x) { return 'طلب ' + esc(x.order_no) + ': ' + fmt(x.amount, 0) + ' ج'; }).join('<br>') + '</div>' : '') +
+        '<div class="moneybox"><div><span>إجمالي الحساب</span><b>' + money(b.total, 0) + '</b></div><div><span>دفع</span><b>' + money(b.paid, 0) + '</b></div><div class="' + (net > 0.009 ? 'due' : 'ok') + '"><span>' + (net < -0.009 ? 'ليه عندنا' : 'الباقي') + '</span><b>' + money(Math.abs(net), 0) + '</b></div></div>' +
+        (c.phone ? '<div class="muted mt">تبعت للعميل صورة الحساب على واتساب؟</div>' : ''),
+        footer: '<button class="btn btn-ghost" data-act="closeModal">بعدين</button>' + (r.result.ids && r.result.ids.length === 1 ? '<button class="btn btn-soft" data-act="nav" data-v="receipt" data-p="' + esc(r.result.ids[0]) + '">' + ic('receipt', 'sm') + 'الإيصال</button>' : '') +
+          '<button class="btn" style="background:#1FA855;color:#fff" data-act="nav" data-v="statement" data-p="' + esc(c.id) + '">' + WA_ICON + 'صورة الحساب</button>' });
+    });
 };
 function reminderText(c, b) {
   var open = b.orders.filter(function (o) { return countsAsSale(o) && n(o.remaining) > 0.009; });

@@ -104,7 +104,7 @@ REP_VIEWS.best = function (R) {
   var byCat = {}, byItem = {};
   list.forEach(function (o) {
     (o.items || []).forEach(function (it) {
-      var rev = n(it.qty) * n(it.unit_price), c = it.category || 'بدون نوع', k = it.product_id ? (prodById(it.product_id) || {}).name || it.name : it.name;
+      var rev = itemRevenue(o, it), c = it.category || o.title || 'بدون نوع', k = it.product_id ? (prodById(it.product_id) || {}).name || it.name : it.name;
       byCat[c] = byCat[c] || { rev: 0, qty: 0 }; byCat[c].rev += rev; byCat[c].qty += n(it.qty);
       byItem[k] = byItem[k] || { rev: 0, qty: 0 }; byItem[k].rev += rev; byItem[k].qty += n(it.qty);
     });

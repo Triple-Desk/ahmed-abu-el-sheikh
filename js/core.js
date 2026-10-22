@@ -45,6 +45,7 @@ var ICONS = {
   check: '<path d="M20 6 9 17l-5-5"/>',
   x: '<path d="M18 6 6 18M6 6l12 12"/>',
   image: '<rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="9" cy="9" r="2"/><path d="m21 15-5-5L5 21"/>',
+  send: '<path d="m22 2-7 20-4-9-9-4z"/><path d="M22 2 11 13"/>',
   coins: '<circle cx="8" cy="8" r="6"/><path d="M18.1 10.4A6 6 0 1 1 10.3 18"/><path d="M7 6h1v4"/>',
   trend: '<path d="m22 7-8.5 8.5-5-5L2 17"/><path d="M16 7h6v6"/>',
   box: '<path d="M21 8 12 3 3 8v8l9 5 9-5V8z"/><path d="m3 8 9 5 9-5M12 13v8"/>',
@@ -86,6 +87,15 @@ function jsonSetting(k) { try { var v = JSON.parse(setting(k, '[]')); return Arr
 function cats() { return jsonSetting('categories'); }
 function costKinds() { return jsonSetting('cost_kinds'); }
 function expKinds() { return jsonSetting('expense_kinds'); }
+function quickItems() { var q = jsonSetting('quick_items'); return q.length ? q : ['دولاب', 'سرير', 'كومودينو', 'تسريحة', 'شوفونيرة', 'مرآة', 'نيش', 'بوفيه', 'سفرة', 'ترابيزة', 'مطبخ', 'باب', 'شباك', 'حلق']; }
+/** What an order item brings in: its price share of the order total (orders with an agreed total share it over the items). */
+function itemRevenue(o, it) {
+  var its = o.items || [], tot = n(o.total), sumP = 0, sumQ = 0;
+  its.forEach(function (x) { sumP += n(x.qty) * n(x.unit_price); sumQ += n(x.qty); });
+  if (sumP > 0) return tot * n(it.qty) * n(it.unit_price) / sumP;
+  return sumQ > 0 ? tot * n(it.qty) / sumQ : 0;
+}
+function orderTitle(o) { return o.title || (o.items || []).map(function (it) { return it.name; }).slice(0, 3).join('، '); }
 function target() { return n(setting('target_margin', 30)); }
 function appName() { return setting('app_name', 'أحمد أبو الشيخ'); }
 function bizName() { return setting('business_name', 'ورشة أحمد أبو الشيخ'); }
@@ -139,6 +149,10 @@ function countsAsSale(o) { return ['confirmed', 'production', 'ready', 'delivere
 
 /* ---------- dates ---------- */
 function fmtDate(s) { if (!s) return ''; var p = String(s).slice(0, 10).split('-'); return p.length === 3 ? '<span class="num">' + p[2] + '/' + p[1] + '/' + p[0] + '</span>' : esc(s); }
+/** Date on customer documents: a slash that never splits (pictures and PDFs render it in one piece). */
+function docDate(s) { if (!s) return ''; var p = String(s).slice(0, 10).split('-'); return p.length === 3 ? '<span class="num">' + p[2] + '\u2215' + p[1] + '\u2215' + p[0] + '</span>' : esc(s); }
+/** Numbers like AS-0001 kept in one piece (also inside generated pictures). */
+function nb(s) { return esc(String(s || '')).replace(/-/g, '\u2011'); }
 function plainDate(s) { if (!s) return ''; var p = String(s).slice(0, 10).split('-'); return p.length === 3 ? p[2] + '/' + p[1] + '/' + p[0] : String(s); }
 function fmtDateLong(s) { try { var p = String(s).split('-'); var d = new Date(+p[0], +p[1] - 1, +p[2]); return d.toLocaleDateString('ar-EG', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }); } catch (e) { return s; } }
 var MONTHS_AR = ['يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو', 'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'];

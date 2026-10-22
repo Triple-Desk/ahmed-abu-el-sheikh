@@ -250,10 +250,17 @@ function safeArr_(v) {
   return [];
 }
 
+/** True when an order has a price agreed for the whole order (المبلغ المتفق عليه). */
+function hasAgreed_(order) {
+  var a = order ? order.agreed_total : '';
+  return a !== '' && a !== null && a !== undefined && isFinite(Number(a));
+}
 /**
  * Estimate of a whole order.
- *  order: {discount, extras:[{label, amount}], waste:{}, full_sheets}
+ *  order: {discount, agreed_total, extras:[{label, amount}], waste:{}, full_sheets}
  *  items: [{id, qty, unit_price, labor:[...], name}]   linesByItem: {item_id: [lines per ONE unit]}
+ * With an agreed total, the customer's total IS the agreed amount (item prices are optional), and it is shared
+ * over the items (by their prices, else their cost, else their quantity) for per-item profit.
  */
 function orderEstimate_(order, items, linesByItem, materials, settings, prices) {
   var groups = (items || []).map(function (it) {
@@ -261,21 +268,23 @@ function orderEstimate_(order, items, linesByItem, materials, settings, prices) 
   });
   var c = costGroups_(groups, { materials: materials, settings: settings, waste: order.waste || {},
                                 fullSheets: order.full_sheets === true || order.full_sheets === 'TRUE' || order.full_sheets === 'true', prices: prices });
-  var t = { items_total: 0, discount: r2_(Math.max(0, num_(order.discount))), total: 0, material_cost: c.material_cost,
+  var agreed = hasAgreed_(order);
+  var t = { items_total: 0, discount: agreed ? 0 : r2_(Math.max(0, num_(order.discount))), total: 0, agreed: agreed, material_cost: c.material_cost,
             labor_cost: c.labor_cost, extra_cost: 0, total_cost: 0, profit: 0, margin: null, qty: 0,
             materials: c.materials, items: {}, warnings: c.warnings };
+  var costAll = 0;
+  (items || []).forEach(function (it) { t.items_total += num_(it.qty) * num_(it.unit_price); t.qty += num_(it.qty); costAll += c.groups[it.id].total_cost; });
+  t.items_total = r2_(t.items_total);
+  t.total = agreed ? r2_(Math.max(0, num_(order.agreed_total))) : r2_(t.items_total - t.discount);
   (items || []).forEach(function (it) {
     var g = c.groups[it.id], q = num_(it.qty), rev = q * num_(it.unit_price);
-    t.qty += q;
-    t.items_total += rev;
+    if (agreed) rev = t.total * (t.items_total > 0 ? rev / t.items_total : costAll > 0 ? g.total_cost / costAll : t.qty > 0 ? q / t.qty : 0);
     t.items[it.id] = { qty: q, revenue: r2_(rev), material_cost: g.material_cost, labor_cost: g.labor_cost, total_cost: g.total_cost,
                        unit_cost: g.unit_cost, unit_material: g.unit_material, unit_labor: g.unit_labor, by_cat: g.by_cat,
                        profit: r2_(rev - g.total_cost), lines: g.lines };
   });
   safeArr_(order.extras).forEach(function (e) { t.extra_cost += Math.max(0, num_(e.amount)); });
-  t.items_total = r2_(t.items_total);
   t.extra_cost = r2_(t.extra_cost);
-  t.total = r2_(t.items_total - t.discount);
   t.total_cost = r2_(t.material_cost + t.labor_cost + t.extra_cost);
   t.profit = r2_(t.total - t.total_cost);
   t.margin = t.total > 0 ? r4_(t.profit / t.total) : null;
