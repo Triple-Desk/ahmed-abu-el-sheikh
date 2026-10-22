@@ -209,9 +209,13 @@ function api(action, payload, requestId) {
 }
 function setBusy(on) { S.busy = on; document.getElementById('busybar').classList.toggle('on', !!on); }
 /** Run a write once; buttons locked while running; the same requestId on retry never duplicates. */
+/* Writes that need server 1.1.0 (agreed totals, editing payments, customer payments) wait until it is live. */
+var NEEDS_SERVER = { saveOrder: '1.1.0', addCustomerPayment: '1.1.0', editPayment: '1.1.0', confirmOrder: '1.1.0' };
+function verLess(a, b) { a = String(a || '0').split('.').map(Number); b = String(b).split('.').map(Number); for (var i = 0; i < 3; i++) { if ((a[i] || 0) !== (b[i] || 0)) return (a[i] || 0) < (b[i] || 0); } return false; }
 function run(action, payload, opts) {
   opts = opts || {};
   if (S.busy) return Promise.resolve(null);
+  if (NEEDS_SERVER[action] && S.data && verLess(S.data.version, NEEDS_SERVER[action])) { toast('السيستم بيتحدّث دلوقتي — جرّب تاني بعد شوية', 'err'); return Promise.resolve(null); }
   setBusy(true);
   var btns = document.querySelectorAll('[data-lockable]'); btns.forEach(function (b) { b.disabled = true; });
   return api(action, payload, opts.rid).then(function (res) {

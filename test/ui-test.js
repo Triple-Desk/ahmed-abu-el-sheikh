@@ -386,6 +386,11 @@ const mat = n => D().materials.find(m => m.name === n);
     assert(t.includes('الإجمالي المتفق عليه') && t.includes('135,000') && t.includes('25,000') && !t.includes('السعر'), t.slice(0, 400));
     click('[data-act=nav][data-v=order]'); await sleep(5);
   });
+  await step('an app newer than the server does not save orders until the server is updated', async () => {
+    const v = w.eval('S.data.version'); w.eval("S.data.version = '1.0.1'");
+    const r = await w.eval("run('saveOrder', {})"); assert(r === null && $$('.toast.err').some(t => t.textContent.includes('بيتحدّث')), 'blocked');
+    w.eval("S.data.version = '" + v + "'"); assert(w.verLess('1.0.9', '1.1.0') && !w.verLess('1.1.0', '1.1.0') && !w.verLess('1.2.0', '1.1.0'), 'compare');
+  });
   await step('no script errors', () => { assert(!errors.length, errors.join('\n')); });
   console.log(`\n${pass} passed, ${fail} failed (${fetches} server calls)\n`);
   process.exit(fail ? 1 : 0);
